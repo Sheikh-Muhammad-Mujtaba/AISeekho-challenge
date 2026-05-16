@@ -1,11 +1,17 @@
 """Chat endpoint — mobile app entry point for the SalesOps Agent."""
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from agents.orchestrator import run_orchestrator
+from agents.orchestrator import run_orchestrator, SALES_AGENT_SYSTEM_PROMPT
 from core.security import get_current_user
-from db.models import User
+from db.models import User, WorkflowRun
+from db.session import get_db
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -27,42 +33,53 @@ class ChatResponse(BaseModel):
 
 SYSTEM_PROMPT = {
     "role": "system",
-    "content": (
-        "You are the SalesOps Agent, an autonomous AI assistant for sales teams. "
-        "You can search Google Places for potential leads, score and deduplicate them, "
-        "create leads in ERPNext CRM, fetch quotation links, send emails via Gmail, "
-        "check calendar availability, and schedule meetings. "
-        "Always default to simulation_mode=true unless the user explicitly says to execute for real."
-    ),
+    "content": SALES_AGENT_SYSTEM_PROMPT,
 }
 
 
 @router.post("/", response_model=ChatResponse)
 async def chat_with_agent(
     request: ChatRequest,
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Main entry point for interacting with the SalesOps Agent."""
-    import logging
-    logger = logging.getLogger(__name__)
-    
-    logger.info("Chat request from user %s: %d messages", current_user.email, len(request.messages))
-    
+    logger.info(
+        "Chat request from user %s: %d messages",
+        current_user.email,
+        len(request.messages),
+    )
+
     try:
+        # ── Ensure we have a WorkflowRun for logging ────────────────
+        run_id = request.run_id
+        if not run_id:
+            db_run = WorkflowRun(
+                user_id=current_user.id,
+                workflow_type="chat",
+                mode="simulation",
+                status="running",
+            )
+            db.add(db_run)
+            await db.commit()
+            await db.refresh(db_run)
+            run_id = db_run.id
+
+        # ── Build messages for the model ────────────────────────────
         messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
 
         # Inject system prompt if not already present
         if not messages or messages[0].get("role") != "system":
             messages.insert(0, SYSTEM_PROMPT)
 
-        reply = await run_orchestrator(messages)
+        reply = await run_orchestrator(messages, run_id=run_id, db=db)
         logger.info("Successfully generated agent response.")
-        
-        return ChatResponse(message=reply, run_id=request.run_id)
+
+        return ChatResponse(message=reply, run_id=run_id)
 
     except Exception as exc:
         logger.error("Internal Error in chat_with_agent: %s", exc, exc_info=True)
         raise HTTPException(
-            status_code=500, 
-            detail=f"SalesOps Agent Error: {str(exc)}"
+            status_code=500,
+            detail=f"SalesOps Agent Error: {str(exc)}",
         )

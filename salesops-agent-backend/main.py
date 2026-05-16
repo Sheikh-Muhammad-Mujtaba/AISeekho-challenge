@@ -30,10 +30,12 @@ app.add_middleware(
 async def health_check():
     return {"status": "healthy"}
 
-from api.endpoints import chat, runs
+from api.endpoints import chat, runs, logs, dashboard
 
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(runs.router, prefix="/api/runs", tags=["runs"])
+app.include_router(logs.router, prefix="/api/workflows", tags=["trace-logs"])
+app.include_router(dashboard.router, prefix="/api/workflows", tags=["dashboard"])
 
 if __name__ == "__main__":
     import uvicorn

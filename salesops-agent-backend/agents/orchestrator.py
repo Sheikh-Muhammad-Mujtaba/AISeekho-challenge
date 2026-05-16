@@ -5,14 +5,31 @@ the OpenAI-compatible chat completions endpoint.
 
 All MCP-compatible tools (ERPNext, Gmail, Google Places, Google Calendar)
 are registered here and dispatched when the LLM requests them.
+
+Database logging: every tool call and audit trace is persisted so
+the frontend can render the Antigravity Trace Viewer.
 """
 
 import json
 import logging
+from datetime import datetime
 
 import openai
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from core.config import settings
-from mcp_tools.erpnext import create_erpnext_lead, get_chatbot_link, CreateLeadInput
+from db.models import ToolCallLog, AuditTrace
+from mcp_tools.erpnext import (
+    create_erpnext_lead,
+    get_chatbot_link,
+    read_erpnext_lead,
+    update_erpnext_lead,
+    analyze_crm_data,
+    CreateLeadInput,
+    ReadLeadInput,
+    UpdateLeadInput,
+    AnalyzeCrmInput,
+)
 from mcp_tools.gmail import send_email
 from mcp_tools.google_places import (
     search_businesses,
@@ -36,6 +53,33 @@ client = openai.AsyncOpenAI(
 )
 
 
+# ── System prompt ────────────────────────────────────────────────────────
+
+SALES_AGENT_SYSTEM_PROMPT = (
+    "You are the SalesOps Agent — an autonomous AI sales assistant tightly "
+    "integrated with ERPNext CRM. Your job is to help sales teams find, "
+    "qualify, and manage leads efficiently.\n\n"
+    "## Capabilities\n"
+    "- **Lead Discovery**: Search Google Places for potential business leads.\n"
+    "- **CRM Read**: Retrieve individual lead details from ERPNext.\n"
+    "- **CRM Write**: Create new leads or update existing leads in ERPNext.\n"
+    "- **CRM Analytics**: Fetch and analyse aggregated CRM data (lead counts, "
+    "status breakdowns, top sources) and present actionable insights.\n"
+    "- **Email Outreach**: Draft and send emails via Gmail.\n"
+    "- **Calendar**: Check availability and schedule meetings.\n\n"
+    "## Rules\n"
+    "1. Always default to `simulation_mode=true` unless the user explicitly "
+    "says 'execute for real' or 'go live'.\n"
+    "2. When the user asks to 'analyze' or 'give insights', use the "
+    "`analyze_crm_data` tool first, then interpret the results in plain language.\n"
+    "3. When updating a lead, confirm the lead_id with the user before calling "
+    "`update_erpnext_lead`.\n"
+    "4. Be concise, data-driven, and proactive — suggest next steps after "
+    "every action.\n"
+    "5. Format monetary values, dates, and phone numbers for a Pakistani audience "
+    "(PKR, DD-MMM-YYYY, +92-xxx).\n"
+)
+
 # ── Tool schemas exposed to function-calling ─────────────────────────────
 AVAILABLE_TOOLS = [
     # ── ERPNext ──
@@ -53,6 +97,64 @@ AVAILABLE_TOOLS = [
                     "simulation_mode": {"type": "boolean", "default": True},
                 },
                 "required": ["first_name", "mobile_no", "email_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_erpnext_lead",
+            "description": "Retrieves the full details of a single lead from ERPNext CRM by its Lead ID.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "lead_id": {"type": "string", "description": "ERPNext Lead ID, e.g. CRM-LEAD-2026-00001"},
+                    "simulation_mode": {"type": "boolean", "default": True},
+                },
+                "required": ["lead_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_erpnext_lead",
+            "description": (
+                "Updates an existing lead in ERPNext CRM. "
+                "Can modify status, lead_name, notes, phone, or email_id."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "lead_id": {"type": "string", "description": "ERPNext Lead ID to update"},
+                    "status": {"type": "string", "description": "New status (Open, Replied, Opportunity, Converted, Do Not Contact)"},
+                    "lead_name": {"type": "string", "description": "Updated lead name"},
+                    "notes": {"type": "string", "description": "Notes to add/replace on the lead"},
+                    "phone": {"type": "string", "description": "Updated phone number"},
+                    "email_id": {"type": "string", "description": "Updated email"},
+                    "simulation_mode": {"type": "boolean", "default": True},
+                },
+                "required": ["lead_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "analyze_crm_data",
+            "description": (
+                "Fetches and summarises CRM data from ERPNext. "
+                "Returns record counts, status breakdowns, top sources, and recent records. "
+                "Use this when the user asks for lead analytics, pipeline health, or CRM insights."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "doctype": {"type": "string", "default": "Lead", "description": "ERPNext DocType to query (Lead, Opportunity, etc.)"},
+                    "limit": {"type": "integer", "default": 20, "description": "Max records to fetch"},
+                    "simulation_mode": {"type": "boolean", "default": True},
+                },
+                "required": [],
             },
         },
     },
@@ -174,21 +276,36 @@ AVAILABLE_TOOLS = [
 
 # ── Tool dispatcher ──────────────────────────────────────────────────────
 
-async def execute_tool_call(tool_name: str, arguments: dict) -> dict:
-    """Route a tool-call request to the correct MCP tool implementation."""
+async def execute_tool_call(
+    tool_name: str,
+    arguments: dict,
+    *,
+    run_id: str | None = None,
+    db: AsyncSession | None = None,
+) -> dict:
+    """Route a tool-call request to the correct MCP tool implementation.
+
+    Persists a ToolCallLog record when *run_id* and *db* are provided.
+    """
     try:
         logger.info("Executing tool: %s  args: %s", tool_name, json.dumps(arguments, default=str))
 
         match tool_name:
             # ERPNext
             case "create_erpnext_lead":
-                return await create_erpnext_lead(CreateLeadInput(**arguments))
+                result = await create_erpnext_lead(CreateLeadInput(**arguments))
+            case "read_erpnext_lead":
+                result = await read_erpnext_lead(ReadLeadInput(**arguments))
+            case "update_erpnext_lead":
+                result = await update_erpnext_lead(UpdateLeadInput(**arguments))
+            case "analyze_crm_data":
+                result = await analyze_crm_data(AnalyzeCrmInput(**arguments))
             case "get_chatbot_link":
-                return await get_chatbot_link(arguments["lead_id"])
+                result = await get_chatbot_link(arguments["lead_id"])
 
             # Gmail
             case "send_email":
-                return await send_email(
+                result = await send_email(
                     arguments["to_email"],
                     arguments["subject"],
                     arguments["body"],
@@ -197,21 +314,51 @@ async def execute_tool_call(tool_name: str, arguments: dict) -> dict:
 
             # Google Places
             case "search_businesses":
-                return await search_businesses(SearchBusinessesInput(**arguments))
+                result = await search_businesses(SearchBusinessesInput(**arguments))
             case "get_place_details":
-                return await get_place_details(GetPlaceDetailsInput(**arguments))
+                result = await get_place_details(GetPlaceDetailsInput(**arguments))
 
             # Google Calendar
             case "check_availability":
-                return await check_availability(CheckAvailabilityInput(**arguments))
+                result = await check_availability(CheckAvailabilityInput(**arguments))
             case "create_event":
-                return await create_event(CreateEventInput(**arguments))
+                result = await create_event(CreateEventInput(**arguments))
 
             case _:
                 logger.warning("Unknown tool requested: %s", tool_name)
-                return {"error": f"Unknown tool: {tool_name}"}
+                result = {"error": f"Unknown tool: {tool_name}"}
+
+        # ── Persist ToolCallLog ──────────────────────────────────────
+        if run_id and db:
+            log_entry = ToolCallLog(
+                run_id=run_id,
+                tool_name=tool_name,
+                input_data=arguments,
+                output_data=result,
+                error=result.get("error") if isinstance(result, dict) else None,
+                created_at=datetime.utcnow(),
+            )
+            db.add(log_entry)
+            await db.commit()
+
+        return result
+
     except Exception as exc:
         logger.error("Tool execution failed [%s]: %s", tool_name, exc, exc_info=True)
+
+        # Log the failure too
+        if run_id and db:
+            log_entry = ToolCallLog(
+                run_id=run_id,
+                tool_name=tool_name,
+                input_data=arguments,
+                output_data=None,
+                error=str(exc),
+                created_at=datetime.utcnow(),
+            )
+            db.add(log_entry)
+            await db.commit()
+
         return {"error": str(exc)}
 
 
@@ -220,8 +367,21 @@ async def execute_tool_call(tool_name: str, arguments: dict) -> dict:
 MAX_TOOL_ROUNDS = 10  # Safety cap to avoid infinite loops
 
 
-async def run_orchestrator(messages: list, *, depth: int = 0) -> str:
-    """Run the agent orchestration loop using Gemini."""
+async def run_orchestrator(
+    messages: list,
+    *,
+    run_id: str | None = None,
+    db: AsyncSession | None = None,
+    depth: int = 0,
+) -> str:
+    """Run the agent orchestration loop using Gemini.
+
+    Args:
+        messages: Conversation history in OpenAI message format.
+        run_id: Optional WorkflowRun.id to correlate logs.
+        db: Optional async DB session for persisting logs.
+        depth: Internal recursion counter.
+    """
     try:
         if depth >= MAX_TOOL_ROUNDS:
             logger.warning("Hit MAX_TOOL_ROUNDS (%d). Returning partial answer.", MAX_TOOL_ROUNDS)
@@ -247,7 +407,18 @@ async def run_orchestrator(messages: list, *, depth: int = 0) -> str:
                 fn_name = tool_call.function.name
                 fn_args = json.loads(tool_call.function.arguments)
 
-                result = await execute_tool_call(fn_name, fn_args)
+                # Persist an audit trace for the tool-call decision
+                if run_id and db:
+                    trace = AuditTrace(
+                        run_id=run_id,
+                        agent_name="Orchestrator",
+                        thought_process=f"Decided to call tool '{fn_name}' with args: {json.dumps(fn_args, default=str)[:500]}",
+                        created_at=datetime.utcnow(),
+                    )
+                    db.add(trace)
+                    await db.commit()
+
+                result = await execute_tool_call(fn_name, fn_args, run_id=run_id, db=db)
 
                 messages.append({
                     "tool_call_id": tool_call.id,
@@ -256,11 +427,24 @@ async def run_orchestrator(messages: list, *, depth: int = 0) -> str:
                     "content": json.dumps(result, default=str),
                 })
 
-            return await run_orchestrator(messages, depth=depth + 1)
+            return await run_orchestrator(messages, run_id=run_id, db=db, depth=depth + 1)
 
         # No tool calls → final answer
         logger.info("Gemini provided final response.")
-        return response_message.content or "I processed your request but didn't generate a text response."
+        final_text = response_message.content or "I processed your request but didn't generate a text response."
+
+        # Persist audit trace for the final response
+        if run_id and db:
+            trace = AuditTrace(
+                run_id=run_id,
+                agent_name="Orchestrator",
+                thought_process=f"Final response generated (length={len(final_text)} chars)",
+                created_at=datetime.utcnow(),
+            )
+            db.add(trace)
+            await db.commit()
+
+        return final_text
 
     except Exception as exc:
         logger.error("Orchestration loop error: %s", exc, exc_info=True)

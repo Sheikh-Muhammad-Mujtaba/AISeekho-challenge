@@ -1,11 +1,11 @@
 /**
  * services/agentApi.ts
  *
- * Mocks the backend Next.js Vercel API endpoints described in Hackthon_plan.md.
- * Allows the UI to demonstrate agent capabilities while the backend is being built.
+ * Connects the mobile UI to the SalesOps Agent backend API.
+ * Uses the shared httpClient (axios instance with auth interceptors).
  */
 
-const delay = (ms: number) => new Promise<void>(resolve => setTimeout(() => resolve(), ms));
+import httpClient from './httpClient';
 
 export const agentApi = {
   /**
@@ -13,24 +13,45 @@ export const agentApi = {
    * Initializes a new workflow run.
    */
   initializeWorkflow: async (prompt: string, isSimulation: boolean) => {
-    await delay(800); // Network delay simulation
+    const response = await httpClient.post('/api/runs', {
+      workflow_type: 'chat',
+      mode: isSimulation ? 'simulation' : 'real',
+    });
     return {
-      run_id: `run_${Date.now()}`,
-      status: 'initialized',
-      simulation_mode: isSimulation,
+      run_id: response.data.id,
+      status: response.data.status,
+      simulation_mode: response.data.mode === 'simulation',
+    };
+  },
+
+  /**
+   * POST /api/chat
+   * Sends messages to the SalesOps Agent and returns the response.
+   */
+  chat: async (messages: Array<{ role: string; content: string }>, runId?: string) => {
+    const response = await httpClient.post('/api/chat', {
+      messages,
+      run_id: runId,
+    });
+    return {
+      message: response.data.message,
+      run_id: response.data.run_id,
     };
   },
 
   /**
    * POST /api/workflows/{run_id}/step
-   * Executes a stateful step. In this mock, we just pretend it succeeds.
+   * Executes a stateful step. Currently passes through to chat.
    */
-  executeStep: async (runId: string, action: any) => {
-    await delay(1200);
+  executeStep: async (runId: string, action: Record<string, unknown>) => {
+    const response = await httpClient.post('/api/chat', {
+      messages: [{ role: 'user', content: JSON.stringify(action) }],
+      run_id: runId,
+    });
     return {
       run_id: runId,
       status: 'in_progress',
-      step_result: { success: true, ...action },
+      step_result: { success: true, message: response.data.message },
     };
   },
 
@@ -39,36 +60,8 @@ export const agentApi = {
    * Fetches the trace logs for the Antigravity Trace Viewer.
    */
   getTraceLogs: async (runId: string) => {
-    await delay(500);
-    return {
-      run_id: runId,
-      logs: [
-        {
-          id: '1',
-          timestamp: new Date(Date.now() - 60000).toISOString(),
-          agent: 'Orchestrator',
-          action: 'plan_workflow',
-          details: 'Parsed user prompt: "Find clinics in Gulberg Lahore"',
-          status: 'success',
-        },
-        {
-          id: '2',
-          timestamp: new Date(Date.now() - 55000).toISOString(),
-          agent: 'Lead Discovery',
-          action: 'google_places.search_businesses',
-          details: 'Found 12 candidates matching "Clinics in Gulberg Lahore"',
-          status: 'success',
-        },
-        {
-          id: '3',
-          timestamp: new Date(Date.now() - 40000).toISOString(),
-          agent: 'Lead Scoring',
-          action: 'noise_filter.deduplicate_candidates',
-          details: 'Filtered 2 duplicates found in ERPNext.',
-          status: 'success',
-        },
-      ],
-    };
+    const response = await httpClient.get(`/api/workflows/${runId}/logs`);
+    return response.data;
   },
 
   /**
@@ -76,15 +69,7 @@ export const agentApi = {
    * Fetches the before/after metrics for the Dashboard.
    */
   getOutcomeMetrics: async (runId: string) => {
-    await delay(600);
-    return {
-      run_id: runId,
-      metrics: {
-        leadsFound: 10,
-        duplicatesPrevented: 2,
-        meetingsScheduled: 1,
-        todosCreated: 5,
-      },
-    };
+    const response = await httpClient.get(`/api/workflows/${runId}/outcome`);
+    return response.data;
   },
 };
