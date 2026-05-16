@@ -4,6 +4,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agents.orchestrator import run_orchestrator, SALES_AGENT_SYSTEM_PROMPT
@@ -51,8 +52,24 @@ async def chat_with_agent(
     )
 
     try:
-        # ── Ensure we have a WorkflowRun for logging ────────────────
+        # ── Ensure we have a valid WorkflowRun for logging ──────────
         run_id = request.run_id
+        if run_id:
+            # Validate the client-supplied run_id actually exists in the DB
+            result = await db.execute(
+                select(WorkflowRun).where(
+                    WorkflowRun.id == run_id,
+                    WorkflowRun.user_id == current_user.id,
+                )
+            )
+            existing_run = result.scalars().first()
+            if not existing_run:
+                logger.warning(
+                    "Client sent unknown run_id=%s — creating a new run.",
+                    run_id,
+                )
+                run_id = None  # fall through to creation below
+
         if not run_id:
             db_run = WorkflowRun(
                 user_id=current_user.id,

@@ -328,36 +328,44 @@ async def execute_tool_call(
                 logger.warning("Unknown tool requested: %s", tool_name)
                 result = {"error": f"Unknown tool: {tool_name}"}
 
-        # ── Persist ToolCallLog ──────────────────────────────────────
+        # ── Persist ToolCallLog (best-effort) ────────────────────────
         if run_id and db:
-            log_entry = ToolCallLog(
-                run_id=run_id,
-                tool_name=tool_name,
-                input_data=arguments,
-                output_data=result,
-                error=result.get("error") if isinstance(result, dict) else None,
-                created_at=datetime.utcnow(),
-            )
-            db.add(log_entry)
-            await db.commit()
+            try:
+                log_entry = ToolCallLog(
+                    run_id=run_id,
+                    tool_name=tool_name,
+                    input_data=arguments,
+                    output_data=result,
+                    error=result.get("error") if isinstance(result, dict) else None,
+                    created_at=datetime.utcnow(),
+                )
+                db.add(log_entry)
+                await db.commit()
+            except Exception as log_exc:
+                logger.warning("Failed to persist ToolCallLog: %s", log_exc)
+                await db.rollback()
 
         return result
 
     except Exception as exc:
         logger.error("Tool execution failed [%s]: %s", tool_name, exc, exc_info=True)
 
-        # Log the failure too
+        # Log the failure too (best-effort)
         if run_id and db:
-            log_entry = ToolCallLog(
-                run_id=run_id,
-                tool_name=tool_name,
-                input_data=arguments,
-                output_data=None,
-                error=str(exc),
-                created_at=datetime.utcnow(),
-            )
-            db.add(log_entry)
-            await db.commit()
+            try:
+                log_entry = ToolCallLog(
+                    run_id=run_id,
+                    tool_name=tool_name,
+                    input_data=arguments,
+                    output_data=None,
+                    error=str(exc),
+                    created_at=datetime.utcnow(),
+                )
+                db.add(log_entry)
+                await db.commit()
+            except Exception as log_exc:
+                logger.warning("Failed to persist error ToolCallLog: %s", log_exc)
+                await db.rollback()
 
         return {"error": str(exc)}
 
@@ -407,16 +415,20 @@ async def run_orchestrator(
                 fn_name = tool_call.function.name
                 fn_args = json.loads(tool_call.function.arguments)
 
-                # Persist an audit trace for the tool-call decision
+                # Persist an audit trace for the tool-call decision (best-effort)
                 if run_id and db:
-                    trace = AuditTrace(
-                        run_id=run_id,
-                        agent_name="Orchestrator",
-                        thought_process=f"Decided to call tool '{fn_name}' with args: {json.dumps(fn_args, default=str)[:500]}",
-                        created_at=datetime.utcnow(),
-                    )
-                    db.add(trace)
-                    await db.commit()
+                    try:
+                        trace = AuditTrace(
+                            run_id=run_id,
+                            agent_name="Orchestrator",
+                            thought_process=f"Decided to call tool '{fn_name}' with args: {json.dumps(fn_args, default=str)[:500]}",
+                            created_at=datetime.utcnow(),
+                        )
+                        db.add(trace)
+                        await db.commit()
+                    except Exception as log_exc:
+                        logger.warning("Failed to persist AuditTrace: %s", log_exc)
+                        await db.rollback()
 
                 result = await execute_tool_call(fn_name, fn_args, run_id=run_id, db=db)
 
@@ -433,16 +445,20 @@ async def run_orchestrator(
         logger.info("Gemini provided final response.")
         final_text = response_message.content or "I processed your request but didn't generate a text response."
 
-        # Persist audit trace for the final response
+        # Persist audit trace for the final response (best-effort)
         if run_id and db:
-            trace = AuditTrace(
-                run_id=run_id,
-                agent_name="Orchestrator",
-                thought_process=f"Final response generated (length={len(final_text)} chars)",
-                created_at=datetime.utcnow(),
-            )
-            db.add(trace)
-            await db.commit()
+            try:
+                trace = AuditTrace(
+                    run_id=run_id,
+                    agent_name="Orchestrator",
+                    thought_process=f"Final response generated (length={len(final_text)} chars)",
+                    created_at=datetime.utcnow(),
+                )
+                db.add(trace)
+                await db.commit()
+            except Exception as log_exc:
+                logger.warning("Failed to persist final AuditTrace: %s", log_exc)
+                await db.rollback()
 
         return final_text
 
