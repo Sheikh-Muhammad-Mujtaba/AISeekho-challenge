@@ -80,37 +80,54 @@ async def get_current_user(
         kid = unverified_header.get("kid", "")
 
         # Fetch JWKS and locate the matching key
-        jwks = await _fetch_jwks()
+        try:
+            jwks = await _fetch_jwks()
+        except Exception as jwks_exc:
+            logger.error("Failed to fetch JWKS: %s", jwks_exc)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Authentication service unavailable (JWKS failure)",
+            )
+            
         signing_key = _get_signing_key(jwks, kid)
 
         # Verify and decode the token
-        # Neon Auth (Better Auth) uses EdDSA by default; fall back to RS256
         algorithms = [unverified_header.get("alg", "EdDSA")]
         payload = jose_jwt.decode(
             token.credentials,
             signing_key,
             algorithms=algorithms,
-            options={"verify_aud": False},  # Neon Auth may not set audience
+            options={"verify_aud": False},
         )
 
         user_id: str = payload.get("sub", "")
         email: str = payload.get("email", "")
 
         if not user_id:
+            logger.warning("Token verified but missing 'sub' claim")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Token missing 'sub' claim",
             )
 
         # Upsert user in local DB
-        result = await db.execute(select(User).where(User.id == user_id))
-        user = result.scalars().first()
+        try:
+            result = await db.execute(select(User).where(User.id == user_id))
+            user = result.scalars().first()
 
-        if not user:
-            user = User(id=user_id, email=email, role="sales_rep")
-            db.add(user)
-            await db.commit()
-            await db.refresh(user)
+            if not user:
+                logger.info("Creating new user record for %s", email)
+                user = User(id=user_id, email=email, role="sales_rep")
+                db.add(user)
+                await db.commit()
+                await db.refresh(user)
+        except Exception as db_exc:
+            logger.error("Database error during user upsert: %s", db_exc)
+            # Don't fail the whole request if DB is just slow, but we need the user object
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Internal database error during authentication",
+            )
 
         return user
 

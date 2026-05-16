@@ -43,6 +43,11 @@ async def chat_with_agent(
     current_user: User = Depends(get_current_user),
 ):
     """Main entry point for interacting with the SalesOps Agent."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    logger.info("Chat request from user %s: %d messages", current_user.email, len(request.messages))
+    
     try:
         messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
 
@@ -51,7 +56,13 @@ async def chat_with_agent(
             messages.insert(0, SYSTEM_PROMPT)
 
         reply = await run_orchestrator(messages)
+        logger.info("Successfully generated agent response.")
+        
         return ChatResponse(message=reply, run_id=request.run_id)
 
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        logger.error("Internal Error in chat_with_agent: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=500, 
+            detail=f"SalesOps Agent Error: {str(exc)}"
+        )

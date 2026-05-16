@@ -176,39 +176,43 @@ AVAILABLE_TOOLS = [
 
 async def execute_tool_call(tool_name: str, arguments: dict) -> dict:
     """Route a tool-call request to the correct MCP tool implementation."""
-    logger.info("Executing tool: %s  args: %s", tool_name, json.dumps(arguments, default=str))
+    try:
+        logger.info("Executing tool: %s  args: %s", tool_name, json.dumps(arguments, default=str))
 
-    match tool_name:
-        # ERPNext
-        case "create_erpnext_lead":
-            return await create_erpnext_lead(CreateLeadInput(**arguments))
-        case "get_chatbot_link":
-            return await get_chatbot_link(arguments["lead_id"])
+        match tool_name:
+            # ERPNext
+            case "create_erpnext_lead":
+                return await create_erpnext_lead(CreateLeadInput(**arguments))
+            case "get_chatbot_link":
+                return await get_chatbot_link(arguments["lead_id"])
 
-        # Gmail
-        case "send_email":
-            return await send_email(
-                arguments["to_email"],
-                arguments["subject"],
-                arguments["body"],
-                arguments.get("simulation_mode", True),
-            )
+            # Gmail
+            case "send_email":
+                return await send_email(
+                    arguments["to_email"],
+                    arguments["subject"],
+                    arguments["body"],
+                    arguments.get("simulation_mode", True),
+                )
 
-        # Google Places
-        case "search_businesses":
-            return await search_businesses(SearchBusinessesInput(**arguments))
-        case "get_place_details":
-            return await get_place_details(GetPlaceDetailsInput(**arguments))
+            # Google Places
+            case "search_businesses":
+                return await search_businesses(SearchBusinessesInput(**arguments))
+            case "get_place_details":
+                return await get_place_details(GetPlaceDetailsInput(**arguments))
 
-        # Google Calendar
-        case "check_availability":
-            return await check_availability(CheckAvailabilityInput(**arguments))
-        case "create_event":
-            return await create_event(CreateEventInput(**arguments))
+            # Google Calendar
+            case "check_availability":
+                return await check_availability(CheckAvailabilityInput(**arguments))
+            case "create_event":
+                return await create_event(CreateEventInput(**arguments))
 
-        case _:
-            logger.warning("Unknown tool requested: %s", tool_name)
-            return {"error": f"Unknown tool: {tool_name}"}
+            case _:
+                logger.warning("Unknown tool requested: %s", tool_name)
+                return {"error": f"Unknown tool: {tool_name}"}
+    except Exception as exc:
+        logger.error("Tool execution failed [%s]: %s", tool_name, exc, exc_info=True)
+        return {"error": str(exc)}
 
 
 # ── Orchestration loop ───────────────────────────────────────────────────
@@ -217,44 +221,47 @@ MAX_TOOL_ROUNDS = 10  # Safety cap to avoid infinite loops
 
 
 async def run_orchestrator(messages: list, *, depth: int = 0) -> str:
-    """Run the agent orchestration loop using Gemini.
+    """Run the agent orchestration loop using Gemini."""
+    try:
+        if depth >= MAX_TOOL_ROUNDS:
+            logger.warning("Hit MAX_TOOL_ROUNDS (%d). Returning partial answer.", MAX_TOOL_ROUNDS)
+            return "I've reached the maximum number of tool calls for this request. Here's what I have so far."
 
-    The LLM decides which tools to call. We execute them and feed the
-    results back until the LLM produces a final text response or we
-    hit the safety cap.
-    """
-    if depth >= MAX_TOOL_ROUNDS:
-        logger.warning("Hit MAX_TOOL_ROUNDS (%d). Returning partial answer.", MAX_TOOL_ROUNDS)
-        return "I've reached the maximum number of tool calls for this request. Here's what I have so far."
+        logger.info("Calling Gemini model (depth=%d)...", depth)
+        response = await client.chat.completions.create(
+            model=settings.GEMINI_MODEL,
+            messages=messages,
+            tools=AVAILABLE_TOOLS,
+            tool_choice="auto",
+            temperature=0.2,
+        )
 
-    response = await client.chat.completions.create(
-        model=settings.GEMINI_MODEL,
-        messages=messages,
-        tools=AVAILABLE_TOOLS,
-        tool_choice="auto",
-        temperature=0.2,
-    )
+        response_message = response.choices[0].message
 
-    response_message = response.choices[0].message
+        # If the model wants to call tools, execute them and recurse
+        if response_message.tool_calls:
+            logger.info("Gemini requested %d tool calls", len(response_message.tool_calls))
+            messages.append(response_message)
 
-    # If the model wants to call tools, execute them and recurse
-    if response_message.tool_calls:
-        messages.append(response_message)
+            for tool_call in response_message.tool_calls:
+                fn_name = tool_call.function.name
+                fn_args = json.loads(tool_call.function.arguments)
 
-        for tool_call in response_message.tool_calls:
-            fn_name = tool_call.function.name
-            fn_args = json.loads(tool_call.function.arguments)
+                result = await execute_tool_call(fn_name, fn_args)
 
-            result = await execute_tool_call(fn_name, fn_args)
+                messages.append({
+                    "tool_call_id": tool_call.id,
+                    "role": "tool",
+                    "name": fn_name,
+                    "content": json.dumps(result, default=str),
+                })
 
-            messages.append({
-                "tool_call_id": tool_call.id,
-                "role": "tool",
-                "name": fn_name,
-                "content": json.dumps(result, default=str),
-            })
+            return await run_orchestrator(messages, depth=depth + 1)
 
-        return await run_orchestrator(messages, depth=depth + 1)
+        # No tool calls → final answer
+        logger.info("Gemini provided final response.")
+        return response_message.content or "I processed your request but didn't generate a text response."
 
-    # No tool calls → final answer
-    return response_message.content
+    except Exception as exc:
+        logger.error("Orchestration loop error: %s", exc, exc_info=True)
+        raise exc

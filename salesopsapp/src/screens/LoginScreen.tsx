@@ -28,23 +28,34 @@ export const LoginScreen = () => {
 
     setIsLoading(true);
     try {
-      // Better Auth / Neon Auth sign in endpoint
-      const response = await axios.post(`${config.NEON_AUTH_URL}/sign-in/email`, {
+      // 1. Better Auth / Neon Auth sign in (returns opaque session token)
+      const signInResponse = await axios.post(`${config.NEON_AUTH_URL}/sign-in/email`, {
         email,
         password,
       });
 
-      // Assuming Better Auth returns a token in the response or sets a cookie
-      // In a purely native environment, we need the token explicitly from the body
-      const token = response.data?.token || response.headers['set-cookie']?.[0];
+      const sessionToken = signInResponse.data?.token;
       
-      if (!token) {
-        throw new Error('No authentication token received');
+      if (!sessionToken) {
+        throw new Error('No session token received from auth provider');
       }
 
-      await signIn(token, {
-        id: response.data?.user?.id || 'id',
-        email: response.data?.user?.email || email,
+      // 2. Exchange Session Token for a JWT (offline-verifiable by backend)
+      const tokenResponse = await axios.get(`${config.NEON_AUTH_URL}/token`, {
+        headers: {
+          Authorization: `Bearer ${sessionToken}`
+        }
+      });
+
+      const jwtToken = tokenResponse.data?.token;
+
+      if (!jwtToken) {
+        throw new Error('Failed to exchange session for JWT token');
+      }
+
+      await signIn(jwtToken, {
+        id: signInResponse.data?.user?.id || 'id',
+        email: signInResponse.data?.user?.email || email,
       });
       
     } catch (error: any) {
