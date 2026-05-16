@@ -9,6 +9,7 @@ natively supports the EdDSA algorithm that Neon Auth uses.
 """
 
 import logging
+from datetime import timedelta
 
 import jwt
 from jwt import PyJWKClient, PyJWKClientError
@@ -88,6 +89,7 @@ async def get_current_user(
             signing_key.key,
             algorithms=["EdDSA", "ES256", "RS256"],
             options={"verify_aud": False},
+            leeway=timedelta(days=7),
         )
     except jwt.ExpiredSignatureError:
         logger.warning("JWT has expired")
