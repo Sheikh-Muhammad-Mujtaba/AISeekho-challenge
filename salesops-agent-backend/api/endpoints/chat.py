@@ -100,7 +100,10 @@ async def chat_with_agent(
         return ChatResponse(message=reply, run_id=run_id)
     except Exception as exc:
         logger.error("chat_with_agent error: %s", exc, exc_info=True)
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(
+            status_code=500,
+            detail="Something went wrong while processing your request.",
+        )
 
 
 # ── POST /chat/stream — SSE streaming ───────────────────────────────────
@@ -126,14 +129,18 @@ async def chat_stream(
     messages = _build_messages(request)
 
     async def event_generator():
-        # Send run_id as first event so the client can track the conversation
-        yield f"data: {json.dumps({'type': 'run_id', 'run_id': run_id})}\n\n"
-        async for event in run_orchestrator_stream(
-            messages,
-            run_id=run_id,
-            google_refresh_token=decrypt_token(current_user.google_refresh_token)
-        ):
-            yield f"data: {json.dumps(event)}\n\n"
+        try:
+            # Send run_id as first event so the client can track the conversation
+            yield f"data: {json.dumps({'type': 'run_id', 'run_id': run_id})}\n\n"
+            async for event in run_orchestrator_stream(
+                messages,
+                run_id=run_id,
+                google_refresh_token=decrypt_token(current_user.google_refresh_token)
+            ):
+                yield f"data: {json.dumps(event)}\n\n"
+        except Exception as exc:
+            logger.error("SSE stream error for run=%s: %s", run_id, exc, exc_info=True)
+            yield f"data: {json.dumps({'type': 'error', 'content': 'Something went wrong. Please try again.'})}\n\n"
 
     return StreamingResponse(
         event_generator(),

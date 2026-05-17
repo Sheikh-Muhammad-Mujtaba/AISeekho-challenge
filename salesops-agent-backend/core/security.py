@@ -96,7 +96,7 @@ async def get_current_user(
         logger.error("JWKS key resolution failed: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Could not resolve signing key: {exc}",
+            detail="Authentication failed. Please sign in again.",
             headers={"WWW-Authenticate": "Bearer"},
         )
     except Exception as exc:
@@ -126,7 +126,7 @@ async def get_current_user(
         logger.warning("JWT verification failed: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid authentication token: {exc}",
+            detail="Invalid authentication token.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -134,10 +134,10 @@ async def get_current_user(
     email: str = payload.get("email", "")
 
     if not user_id:
-        logger.warning("Token verified but missing 'sub' claim. Payload: %s", payload)
+        logger.warning("Token verified but missing 'sub' claim")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token missing 'sub' claim",
+            detail="Invalid authentication token.",
         )
 
     logger.info("JWT verified for user_id=%s email=%s", user_id, email)

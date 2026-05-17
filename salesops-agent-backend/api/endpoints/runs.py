@@ -53,16 +53,25 @@ async def create_run(
     current_user: User = Depends(get_current_user),
 ):
     """Initialize a new workflow run."""
-    db_run = WorkflowRun(
-        user_id=current_user.id,
-        workflow_type=run_in.workflow_type,
-        mode=run_in.mode,
-        status="running",
-    )
-    db.add(db_run)
-    await db.commit()
-    await db.refresh(db_run)
-    return db_run
+    try:
+        db_run = WorkflowRun(
+            user_id=current_user.id,
+            workflow_type=run_in.workflow_type,
+            mode=run_in.mode,
+            status="running",
+        )
+        db.add(db_run)
+        await db.commit()
+        await db.refresh(db_run)
+        return db_run
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("create_run failed: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to create workflow run. Please try again.",
+        )
 
 
 # ── GET /api/runs — list all runs for logged-in user ─────────────────────
@@ -75,44 +84,53 @@ async def list_runs(
     current_user: User = Depends(get_current_user),
 ):
     """List workflow runs for the authenticated user, newest first."""
-    result = await db.execute(
-        select(WorkflowRun)
-        .where(WorkflowRun.user_id == current_user.id)
-        .order_by(WorkflowRun.created_at.desc())
-        .offset(offset)
-        .limit(limit)
-    )
-    runs = result.scalars().all()
-
-    summaries = []
-    for run in runs:
-        # Count associated tool calls
-        tc_result = await db.execute(
-            select(func.count())
-            .select_from(ToolCallLog)
-            .where(ToolCallLog.run_id == run.id)
+    try:
+        result = await db.execute(
+            select(WorkflowRun)
+            .where(WorkflowRun.user_id == current_user.id)
+            .order_by(WorkflowRun.created_at.desc())
+            .offset(offset)
+            .limit(limit)
         )
-        tool_count = tc_result.scalar() or 0
+        runs = result.scalars().all()
 
-        # Count associated audit traces
-        at_result = await db.execute(
-            select(func.count())
-            .select_from(AuditTrace)
-            .where(AuditTrace.run_id == run.id)
+        summaries = []
+        for run in runs:
+            # Count associated tool calls
+            tc_result = await db.execute(
+                select(func.count())
+                .select_from(ToolCallLog)
+                .where(ToolCallLog.run_id == run.id)
+            )
+            tool_count = tc_result.scalar() or 0
+
+            # Count associated audit traces
+            at_result = await db.execute(
+                select(func.count())
+                .select_from(AuditTrace)
+                .where(AuditTrace.run_id == run.id)
+            )
+            trace_count = at_result.scalar() or 0
+
+            summaries.append(WorkflowRunSummary(
+                id=run.id,
+                status=run.status,
+                mode=run.mode,
+                workflow_type=run.workflow_type,
+                created_at=run.created_at,
+                tool_call_count=tool_count,
+                trace_count=trace_count,
+            ))
+
+        return summaries
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("list_runs failed: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to retrieve workflow runs.",
         )
-        trace_count = at_result.scalar() or 0
-
-        summaries.append(WorkflowRunSummary(
-            id=run.id,
-            status=run.status,
-            mode=run.mode,
-            workflow_type=run.workflow_type,
-            created_at=run.created_at,
-            tool_call_count=tool_count,
-            trace_count=trace_count,
-        ))
-
-    return summaries
 
 
 # ── GET /api/runs/{run_id} — get a specific run ─────────────────────────
@@ -124,13 +142,22 @@ async def get_run(
     current_user: User = Depends(get_current_user),
 ):
     """Get the status of a specific workflow run."""
-    result = await db.execute(
-        select(WorkflowRun).where(
-            WorkflowRun.id == run_id,
-            WorkflowRun.user_id == current_user.id,
+    try:
+        result = await db.execute(
+            select(WorkflowRun).where(
+                WorkflowRun.id == run_id,
+                WorkflowRun.user_id == current_user.id,
+            )
         )
-    )
-    run = result.scalars().first()
-    if not run:
-        raise HTTPException(status_code=404, detail="Run not found")
-    return run
+        run = result.scalars().first()
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
+        return run
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("get_run failed for run_id=%s: %s", run_id, exc, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to retrieve workflow run.",
+        )

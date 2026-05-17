@@ -46,64 +46,74 @@ async def get_outcome_metrics(
     current_user: User = Depends(get_current_user),
 ):
     """Compute outcome metrics from tool-call logs for a workflow run."""
-
-    # Verify ownership
-    run_result = await db.execute(
-        select(WorkflowRun).where(
-            WorkflowRun.id == run_id,
-            WorkflowRun.user_id == current_user.id,
+    try:
+        # Verify ownership
+        run_result = await db.execute(
+            select(WorkflowRun).where(
+                WorkflowRun.id == run_id,
+                WorkflowRun.user_id == current_user.id,
+            )
         )
-    )
-    run = run_result.scalars().first()
-    if not run:
-        raise HTTPException(status_code=404, detail="Run not found")
+        run = run_result.scalars().first()
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
 
-    # Fetch all tool-call logs for this run
-    tool_result = await db.execute(
-        select(ToolCallLog).where(ToolCallLog.run_id == run_id)
-    )
-    tool_logs = tool_result.scalars().all()
+        # Fetch all tool-call logs for this run
+        tool_result = await db.execute(
+            select(ToolCallLog).where(ToolCallLog.run_id == run_id)
+        )
+        tool_logs = tool_result.scalars().all()
 
-    # ── Derive metrics from tool calls ───────────────────────────────
-    leads_found = 0
-    duplicates_prevented = 0
-    meetings_scheduled = 0
-    todos_created = 0
+        # ── Derive metrics from tool calls ───────────────────────────────
+        leads_found = 0
+        duplicates_prevented = 0
+        meetings_scheduled = 0
+        todos_created = 0
 
-    for log in tool_logs:
-        name = log.tool_name or ""
-        output = log.output_data if isinstance(log.output_data, dict) else {}
-        is_success = not log.error and output.get("status") != "error"
+        for log in tool_logs:
+            name = log.tool_name or ""
+            output = log.output_data if isinstance(log.output_data, dict) else {}
+            is_success = not log.error and output.get("status") != "error"
 
-        if not is_success:
-            continue
+            if not is_success:
+                continue
 
-        if name == "search_businesses":
-            # Count discovered businesses
-            data = output.get("data", output.get("results", []))
-            if isinstance(data, list):
-                leads_found += len(data)
-            elif isinstance(data, dict):
-                leads_found += data.get("total", 1)
+            if name == "search_businesses":
+                # Count discovered businesses
+                data = output.get("data", output.get("results", []))
+                if isinstance(data, list):
+                    leads_found += len(data)
+                elif isinstance(data, dict):
+                    leads_found += data.get("total", 1)
 
-        elif name == "create_erpnext_lead":
-            todos_created += 1
+            elif name == "create_erpnext_lead":
+                todos_created += 1
 
-        elif name == "analyze_crm_data":
-            # If analysis returned duplicate info, count it
-            summary = output.get("summary", {})
-            if isinstance(summary, dict):
-                duplicates_prevented += summary.get("duplicates_found", 0)
+            elif name == "analyze_crm_data":
+                # If analysis returned duplicate info, count it
+                summary = output.get("summary", {})
+                if isinstance(summary, dict):
+                    duplicates_prevented += summary.get("duplicates_found", 0)
 
-        elif name == "create_event":
-            meetings_scheduled += 1
+            elif name == "create_event":
+                meetings_scheduled += 1
 
-    return OutcomeResponse(
-        run_id=run_id,
-        metrics=OutcomeMetrics(
-            leadsFound=leads_found,
-            duplicatesPrevented=duplicates_prevented,
-            meetingsScheduled=meetings_scheduled,
-            todosCreated=todos_created,
-        ),
-    )
+        return OutcomeResponse(
+            run_id=run_id,
+            metrics=OutcomeMetrics(
+                leadsFound=leads_found,
+                duplicatesPrevented=duplicates_prevented,
+                meetingsScheduled=meetings_scheduled,
+                todosCreated=todos_created,
+            ),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(
+            "get_outcome_metrics failed for run_id=%s: %s", run_id, exc, exc_info=True
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to retrieve outcome metrics.",
+        )

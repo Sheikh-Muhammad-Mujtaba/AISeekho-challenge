@@ -1,7 +1,11 @@
 import logging
 import sys
-from fastapi import FastAPI 
+import uuid
+
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 # Configure logging
 logging.basicConfig(
@@ -25,6 +29,58 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ── Global Exception Handlers ────────────────────────────────────────────
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Catch-all for unhandled exceptions.
+
+    Logs the full traceback with a correlation ID server-side,
+    returns only a generic message + correlation ID to the client.
+    """
+    error_id = uuid.uuid4().hex[:12]
+    logger.error(
+        "Unhandled error [%s] %s %s: %s",
+        error_id,
+        request.method,
+        request.url.path,
+        exc,
+        exc_info=True,
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "An unexpected error occurred. Please try again later.",
+            "error_id": error_id,
+        },
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(
+    request: Request, exc: RequestValidationError
+):
+    """Return a clean 422 without leaking full schema details."""
+    logger.warning(
+        "Validation error on %s %s: %s",
+        request.method,
+        request.url.path,
+        exc.errors(),
+    )
+    # Simplify each error to field + message only
+    errors = [
+        {
+            "field": " → ".join(str(loc) for loc in err.get("loc", [])),
+            "message": err.get("msg", "Invalid value"),
+        }
+        for err in exc.errors()
+    ]
+    return JSONResponse(
+        status_code=422,
+        content={"detail": "Validation error", "errors": errors},
+    )
+
 
 @app.get("/health")
 async def health_check():

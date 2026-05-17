@@ -44,10 +44,14 @@ async def sync_google_calendar(
         async with httpx.AsyncClient() as client:
             response = await client.post(url, data=payload)
             if response.status_code != 200:
-                logger.error(f"Google Token Exchange Failed: {response.text}")
+                logger.error(
+                    "Google Token Exchange Failed (status=%d): %s",
+                    response.status_code,
+                    response.text,
+                )
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Google OAuth exchange failed: {response.json().get('error_description', response.text)}"
+                    detail="Google Calendar authorization failed. Please try connecting again.",
                 )
             
             data = response.json()
@@ -83,9 +87,12 @@ async def sync_google_calendar(
 
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Error connecting calendar: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+    except Exception as exc:
+        logger.error("Error connecting calendar for user %s: %s", current_user.id, exc, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to connect Google Calendar. Please try again later.",
+        )
 
 
 @router.get("/status")
