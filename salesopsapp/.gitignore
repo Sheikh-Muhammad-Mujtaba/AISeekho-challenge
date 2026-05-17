@@ -78,3 +78,4 @@ yarn-error.log
 .env*
 !.env.example
 
+ios/salesopsapp/GoogleService-Info.plist

@@ -1,8 +1,13 @@
-import Config from 'react-native-config';
+import RNConfig from 'react-native-config';
 
+const Config = RNConfig as {
+  API_URL?: string;
+  NEON_AUTH_URL?: string;
+  GOOGLE_WEB_CLIENT_ID?: string;
+};
+console.log('Config:', Config);
 export const config = {
-  // Use .env value, fallback to emulator default if missing
-  API_URL: Config.API_URL || 'https://ai-seekho-challenge.vercel.app/api',
-  // Neon Auth Base URL
-  NEON_AUTH_URL: Config.NEON_AUTH_URL || 'https://ep-steep-base-ap3934ra.neonauth.c-7.us-east-1.aws.neon.tech/neondb/auth',
+  API_URL: Config.API_URL || '',
+  NEON_AUTH_URL: Config.NEON_AUTH_URL || '',
+  GOOGLE_WEB_CLIENT_ID: Config.GOOGLE_WEB_CLIENT_ID || '',
 };
