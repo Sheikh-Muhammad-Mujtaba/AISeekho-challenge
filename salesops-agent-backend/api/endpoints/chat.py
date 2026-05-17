@@ -32,6 +32,41 @@ router = APIRouter()
 
 SYSTEM_PROMPT = {"role": "system", "content": SALES_AGENT_SYSTEM_PROMPT}
 
+# ── Pre-LLM trivial message guard ────────────────────────────────────────
+
+_TRIVIAL_PATTERNS: set[str] = {
+    "hi", "hello", "hey", "hola", "yo", "sup", "hii", "hiii",
+    "assalam o alaikum", "aoa", "salam", "salaam",
+    "ok", "okay", "k", "yes", "no", "hmm", "hm", "lol",
+    "thanks", "thank you", "bye", "goodbye", "see you",
+    "good morning", "good evening", "good night",
+    "what's up", "whats up", "how are you", "how r u",
+    "test", "testing", "ping",
+}
+
+_TRIVIAL_RESPONSE = (
+    "👋 Welcome to **SalesOps Agent**!\n\n"
+    "I'm your AI-powered sales operations assistant. Here's what I can help you with:\n\n"
+    "- 🔍 **Find Leads** — \"Find healthcare clinics in Gulberg, Lahore\"\n"
+    "- 📊 **CRM Analysis** — \"Show me my pipeline status\" or \"How many open leads do I have?\"\n"
+    "- 📧 **Send Emails** — \"Draft an introductory email to Ali Hassan at ali@example.com\"\n"
+    "- 📅 **Schedule Meetings** — \"Book a meeting with Sara for tomorrow at 3 PM\"\n\n"
+    "Please describe what you'd like to do with some details so I can assist you effectively!"
+)
+
+
+def _is_trivial_message(text: str) -> bool:
+    """Return True if the message is a greeting/trivial text that should not hit the LLM."""
+    cleaned = text.strip().lower().rstrip("!?.,:;")
+    # Exact match against known trivial patterns
+    if cleaned in _TRIVIAL_PATTERNS:
+        return True
+    # Very short messages with no real intent (1-2 words, under 12 chars)
+    words = cleaned.split()
+    if len(words) <= 2 and len(cleaned) < 12:
+        return True
+    return False
+
 
 # ── Schemas ──────────────────────────────────────────────────────────────
 
@@ -143,11 +178,15 @@ async def chat_with_agent(
 ):
     """Standard request/response chat endpoint."""
     try:
+        # Guard: block trivial/greeting messages before hitting the LLM
+        user_text = _extract_last_user_message(request)
+        if user_text and _is_trivial_message(user_text):
+            return ChatResponse(message=_TRIVIAL_RESPONSE, run_id=request.run_id)
+
         run_id = await _resolve_run_id(request.run_id, current_user.id, db)
         messages = _build_messages(request)
 
         # Save the user message
-        user_text = _extract_last_user_message(request)
         if user_text:
             await _save_message(db, run_id, "user", user_text)
 
@@ -199,11 +238,20 @@ async def chat_stream(
     without requiring true SSE streaming.
     """
     try:
+        # Guard: block trivial/greeting messages before hitting the LLM
+        user_text = _extract_last_user_message(request)
+        if user_text and _is_trivial_message(user_text):
+            return {
+                "run_id": request.run_id,
+                "status": "completed",
+                "steps": [],
+                "message": _TRIVIAL_RESPONSE,
+            }
+
         run_id = await _resolve_run_id(request.run_id, current_user.id, db)
         messages = _build_messages(request)
 
         # Save the user message
-        user_text = _extract_last_user_message(request)
         if user_text:
             await _save_message(db, run_id, "user", user_text)
 
