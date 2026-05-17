@@ -48,7 +48,7 @@ async def get_trace_logs(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    \"\"\"Return merged audit traces + tool-call logs for a workflow run.\"\"\"
+    """Return merged audit traces + tool-call logs for a workflow run."""
     try:
         # Verify the run belongs to the authenticated user
         run_result = await db.execute(
