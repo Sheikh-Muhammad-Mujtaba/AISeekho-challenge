@@ -441,18 +441,31 @@ async def run_orchestrator(
 
 # ── Public API: streaming ────────────────────────────────────────────────
 
+from openai.types.responses import ResponseTextDeltaEvent
+
+
 async def run_orchestrator_stream(
     messages: list,
     *,
     run_id: str | None = None,
     google_refresh_token: str | None = None,
 ) -> AsyncGenerator[dict, None]:
-    """Run the agent orchestration loop with streaming SSE events."""
+    """Run the agent orchestration loop with streaming SSE events.
+
+    Yields dict events suitable for SSE:
+      {"type": "token",       "content": "partial text"}
+      {"type": "agent",       "agent": "AgentName"}
+      {"type": "tool",        "tool": "tool_name"}
+      {"type": "tool_output", "content": "..."}
+      {"type": "message",     "content": "full message"}
+      {"type": "done",        "content": "final output"}
+      {"type": "error",       "content": "error msg"}
+    """
     token = current_run_id.set(run_id)
     try:
         context = AgentContext(
             run_id=run_id or "",
-            google_refresh_token=google_refresh_token
+            google_refresh_token=google_refresh_token,
         )
         result = Runner.run_streamed(
             starting_agent=orchestrator_agent,
@@ -460,32 +473,49 @@ async def run_orchestrator_stream(
             context=context,
         )
 
+        logger.info("SSE stream started for run_id=%s", run_id)
+
         async for event in result.stream_events():
+            # ── Token deltas (real-time text output) ─────────────────
             if event.type == "raw_response_event":
-                data = event.data
-                if hasattr(data, "delta") and hasattr(data.delta, "text"):
-                    text = data.delta.text
-                    if text:
-                        yield {"type": "token", "content": text}
+                if isinstance(event.data, ResponseTextDeltaEvent):
+                    delta = event.data.delta
+                    if delta:
+                        yield {"type": "token", "content": delta}
 
+            # ── Agent hand-off ───────────────────────────────────────
             elif event.type == "agent_updated_stream_event":
-                yield {"type": "agent", "agent": event.new_agent.name}
+                agent_name = event.new_agent.name
+                logger.info("Agent hand-off → %s (run=%s)", agent_name, run_id)
+                yield {"type": "agent", "agent": agent_name}
 
+            # ── Run-item lifecycle events ────────────────────────────
             elif event.type == "run_item_stream_event":
                 item = event.item
                 if item.type == "tool_call_item":
-                    yield {"type": "tool", "tool": getattr(item, "name", "unknown")}
+                    tool_name = getattr(
+                        item, "name",
+                        getattr(getattr(item, "raw_item", None), "name", "unknown"),
+                    )
+                    logger.info("Tool call: %s (run=%s)", tool_name, run_id)
+                    yield {"type": "tool", "tool": tool_name}
+
                 elif item.type == "tool_call_output_item":
-                    yield {"type": "tool_output", "content": str(item.output)[:200]}
+                    output_preview = str(item.output)[:300]
+                    yield {"type": "tool_output", "content": output_preview}
+
                 elif item.type == "message_output_item":
                     text = ItemHelpers.text_message_output(item)
                     if text:
                         yield {"type": "message", "content": text}
 
-        yield {"type": "done", "content": result.final_output or ""}
+        # Stream fully consumed — send final output
+        final = result.final_output or ""
+        logger.info("SSE stream completed for run_id=%s (output_len=%d)", run_id, len(final))
+        yield {"type": "done", "content": final}
 
     except Exception as exc:
-        logger.error("Streaming error: %s", exc, exc_info=True)
-        yield {"type": "error", "content": str(exc)}
+        logger.error("Streaming error (run=%s): %s", run_id, exc, exc_info=True)
+        yield {"type": "error", "content": "Something went wrong. Please try again."}
     finally:
         current_run_id.reset(token)
