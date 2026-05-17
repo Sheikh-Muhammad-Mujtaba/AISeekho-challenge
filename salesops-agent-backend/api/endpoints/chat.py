@@ -1,21 +1,30 @@
-"""Chat endpoint — mobile app entry point for the SalesOps Agent."""
+"""Chat endpoints — SalesOps Agent entry points (standard + SSE streaming)."""
 
+import json
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agents.orchestrator import run_orchestrator, SALES_AGENT_SYSTEM_PROMPT
-from core.security import get_current_user
+from agent_core.orchestrator import (
+    run_orchestrator,
+    run_orchestrator_stream,
+    SALES_AGENT_SYSTEM_PROMPT,
+)
+from core.security import get_current_user, decrypt_token
 from db.models import User, WorkflowRun
 from db.session import get_db
 
 logger = logging.getLogger(__name__)
-
 router = APIRouter()
 
+SYSTEM_PROMPT = {"role": "system", "content": SALES_AGENT_SYSTEM_PROMPT}
+
+
+# ── Schemas ──────────────────────────────────────────────────────────────
 
 class ChatMessage(BaseModel):
     role: str
@@ -32,11 +41,46 @@ class ChatResponse(BaseModel):
     run_id: str | None = None
 
 
-SYSTEM_PROMPT = {
-    "role": "system",
-    "content": SALES_AGENT_SYSTEM_PROMPT,
-}
+# ── Helpers ──────────────────────────────────────────────────────────────
 
+async def _resolve_run_id(
+    run_id: str | None,
+    user_id: str,
+    db: AsyncSession,
+) -> str:
+    """Validate or create a WorkflowRun and return its id."""
+    if run_id:
+        result = await db.execute(
+            select(WorkflowRun).where(
+                WorkflowRun.id == run_id,
+                WorkflowRun.user_id == user_id,
+            )
+        )
+        if result.scalars().first():
+            return run_id
+        logger.warning("Unknown run_id=%s — creating new run.", run_id)
+
+    db_run = WorkflowRun(
+        user_id=user_id,
+        workflow_type="chat",
+        mode="simulation",
+        status="running",
+    )
+    db.add(db_run)
+    await db.commit()
+    await db.refresh(db_run)
+    return db_run.id
+
+
+def _build_messages(request: ChatRequest) -> list[dict]:
+    """Convert request messages and inject system prompt."""
+    msgs = [{"role": m.role, "content": m.content} for m in request.messages]
+    if not msgs or msgs[0].get("role") != "system":
+        msgs.insert(0, SYSTEM_PROMPT)
+    return msgs
+
+
+# ── POST /chat — non-streaming (backward compat) ────────────────────────
 
 @router.post("/", response_model=ChatResponse)
 async def chat_with_agent(
@@ -44,59 +88,59 @@ async def chat_with_agent(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Main entry point for interacting with the SalesOps Agent."""
-    logger.info(
-        "Chat request from user %s: %d messages",
-        current_user.email,
-        len(request.messages),
-    )
-
+    """Standard request/response chat endpoint."""
     try:
-        # ── Ensure we have a valid WorkflowRun for logging ──────────
-        run_id = request.run_id
-        if run_id:
-            # Validate the client-supplied run_id actually exists in the DB
-            result = await db.execute(
-                select(WorkflowRun).where(
-                    WorkflowRun.id == run_id,
-                    WorkflowRun.user_id == current_user.id,
-                )
-            )
-            existing_run = result.scalars().first()
-            if not existing_run:
-                logger.warning(
-                    "Client sent unknown run_id=%s — creating a new run.",
-                    run_id,
-                )
-                run_id = None  # fall through to creation below
-
-        if not run_id:
-            db_run = WorkflowRun(
-                user_id=current_user.id,
-                workflow_type="chat",
-                mode="simulation",
-                status="running",
-            )
-            db.add(db_run)
-            await db.commit()
-            await db.refresh(db_run)
-            run_id = db_run.id
-
-        # ── Build messages for the model ────────────────────────────
-        messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
-
-        # Inject system prompt if not already present
-        if not messages or messages[0].get("role") != "system":
-            messages.insert(0, SYSTEM_PROMPT)
-
-        reply = await run_orchestrator(messages, run_id=run_id, db=db)
-        logger.info("Successfully generated agent response.")
-
-        return ChatResponse(message=reply, run_id=run_id)
-
-    except Exception as exc:
-        logger.error("Internal Error in chat_with_agent: %s", exc, exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"SalesOps Agent Error: {str(exc)}",
+        run_id = await _resolve_run_id(request.run_id, current_user.id, db)
+        messages = _build_messages(request)
+        reply = await run_orchestrator(
+            messages,
+            run_id=run_id,
+            google_refresh_token=decrypt_token(current_user.google_refresh_token)
         )
+        return ChatResponse(message=reply, run_id=run_id)
+    except Exception as exc:
+        logger.error("chat_with_agent error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ── POST /chat/stream — SSE streaming ───────────────────────────────────
+
+@router.post("/stream")
+async def chat_stream(
+    request: ChatRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Server-Sent Events streaming endpoint.
+
+    Each SSE line is a JSON object:
+      {"type": "agent",       "agent": "AgentName"}
+      {"type": "tool",        "tool": "tool_name"}
+      {"type": "tool_output", "content": "..."}
+      {"type": "token",       "content": "partial text"}
+      {"type": "message",     "content": "full message"}
+      {"type": "done",        "content": "final output"}
+      {"type": "error",       "content": "error msg"}
+    """
+    run_id = await _resolve_run_id(request.run_id, current_user.id, db)
+    messages = _build_messages(request)
+
+    async def event_generator():
+        # Send run_id as first event so the client can track the conversation
+        yield f"data: {json.dumps({'type': 'run_id', 'run_id': run_id})}\n\n"
+        async for event in run_orchestrator_stream(
+            messages,
+            run_id=run_id,
+            google_refresh_token=decrypt_token(current_user.google_refresh_token)
+        ):
+            yield f"data: {json.dumps(event)}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

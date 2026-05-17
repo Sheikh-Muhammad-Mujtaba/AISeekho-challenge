@@ -1,4 +1,6 @@
-from sqlalchemy import Column, String, Integer, DateTime, Boolean, JSON, ForeignKey, Text
+from sqlalchemy import (
+    Column, String, Integer, Float, DateTime, Boolean, JSON, ForeignKey, Text,
+)
 from sqlalchemy.orm import declarative_base, relationship
 from datetime import datetime
 import uuid
@@ -11,9 +13,14 @@ def generate_uuid():
 class User(Base):
     __tablename__ = "users"
     
-    id = Column(String, primary_key=True, index=True) # Firebase UID
+    id = Column(String, primary_key=True, index=True) # Firebase/Neon UID
     email = Column(String, unique=True, index=True)
     role = Column(String, default="sales_rep") # e.g. 'sales_rep', 'sales_manager'
+    
+    # Google Calendar Integration
+    google_refresh_token = Column(String, nullable=True) # Should be encrypted in production
+    google_calendar_connected = Column(Boolean, default=False)
+    
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class WorkflowRun(Base):
@@ -50,6 +57,7 @@ class ToolCallLog(Base):
     input_data = Column(JSON, nullable=True)
     output_data = Column(JSON, nullable=True)
     error = Column(Text, nullable=True)
+    duration_ms = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class AuditTrace(Base):
@@ -59,4 +67,8 @@ class AuditTrace(Base):
     run_id = Column(String, ForeignKey("workflow_runs.id"))
     agent_name = Column(String)
     thought_process = Column(Text, nullable=True)
+    model_name = Column(String, nullable=True)
+    input_tokens = Column(Integer, nullable=True)
+    output_tokens = Column(Integer, nullable=True)
+    cost_usd = Column(Float, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)

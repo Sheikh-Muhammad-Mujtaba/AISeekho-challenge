@@ -8,8 +8,8 @@ class Settings(BaseSettings):
     DATABASE_URL: str = ""
 
     # ── Neon Auth (Better Auth) ──────────────────────────────────────────
-    NEON_AUTH_URL: str = ""      # e.g. https://ep-xxx.neonauth.c-7.us-east-1.aws.neon.tech/neondb/auth
-    NEON_AUTH_JWKS_URL: str = "" # e.g. https://ep-xxx.neonauth.c-7.us-east-1.aws.neon.tech/neondb/auth/.well-known/jwks.json
+    NEON_AUTH_URL: str = ""
+    NEON_AUTH_JWKS_URL: str = ""
 
     # ── ERPNext ──────────────────────────────────────────────────────────
     ERPNEXT_BASE_URL: str = ""
@@ -17,11 +17,24 @@ class Settings(BaseSettings):
 
     # ── Google ───────────────────────────────────────────────────────────
     GOOGLE_PLACES_API_KEY: str = ""
+    GOOGLE_CALENDAR_CLIENT_ID: str = ""
+    GOOGLE_CALENDAR_CLIENT_SECRET: str = ""
+    GOOGLE_CALENDAR_REFRESH_TOKEN: str = ""
 
-    # ── Gemini (via OpenAI-compatible endpoint) ──────────────────────────
+    # ── Gemini (tiered models via OpenAI-compatible endpoint) ────────────
     GEMINI_API_KEY: str = ""
     GEMINI_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
-    GEMINI_MODEL: str = "gemini-2.5-flash"
+    GEMINI_MODEL_HEAVY: str = "gemini-2.5-pro"          # orchestrator
+    GEMINI_MODEL_MEDIUM: str = "gemini-2.5-flash"       # lead gen, outreach
+    GEMINI_MODEL_LIGHT: str = "gemini-2.5-flash-lite"   # simple lookups
+
+    # ── OpenRouter (OpenAI-compatible, for CRM agent) ────────────────────
+    OPENROUTER_API_KEY: str = ""
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+    OPENROUTER_MODEL: str = "z-ai/glm-4.5-air:free"
+
+    # ── Security ─────────────────────────────────────────────────────────
+    ENCRYPTION_KEY: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",

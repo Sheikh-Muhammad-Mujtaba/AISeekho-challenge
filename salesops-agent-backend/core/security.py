@@ -12,6 +12,7 @@ import logging
 from datetime import timedelta
 
 import jwt
+from cryptography.fernet import Fernet
 from jwt import PyJWKClient, PyJWKClientError
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -23,6 +24,29 @@ from db.models import User
 from db.session import get_db
 
 logger = logging.getLogger(__name__)
+
+# ── Encryption Helpers ───────────────────────────────────────────────────
+
+def get_fernet() -> Fernet:
+    """Get Fernet instance using the configured ENCRYPTION_KEY."""
+    if not settings.ENCRYPTION_KEY:
+        raise ValueError("ENCRYPTION_KEY must be set in the environment.")
+    return Fernet(settings.ENCRYPTION_KEY.encode())
+
+def encrypt_token(token: str) -> str:
+    """Encrypt a plaintext token."""
+    if not token:
+        return token
+    f = get_fernet()
+    return f.encrypt(token.encode()).decode()
+
+def decrypt_token(encrypted_token: str) -> str:
+    """Decrypt an encrypted token."""
+    if not encrypted_token:
+        return encrypted_token
+    f = get_fernet()
+    return f.decrypt(encrypted_token.encode()).decode()
+
 
 security = HTTPBearer()
 
