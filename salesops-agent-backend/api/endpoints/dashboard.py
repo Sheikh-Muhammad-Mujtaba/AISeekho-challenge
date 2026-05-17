@@ -127,7 +127,7 @@ async def _fetch_recent_leads() -> tuple[dict, list]:
         input_data = AnalyzeCrmInput(
             doctype="Lead",
             fields=["name", "lead_name", "status", "source", "creation", "email_id", "mobile_no"],
-            limit=100,
+            limit=3,
             order_by="creation desc"
         )
         response = await analyze_crm_data(input_data)
@@ -221,7 +221,7 @@ async def _fetch_usage_stats(
 async def _fetch_recent_activity(
     user_id: str,
     db: AsyncSession,
-    limit: int = 10,
+    limit: int = 3,
 ) -> list[RecentActivity]:
     """Fetch the most recent activity items for the user."""
     items: list[RecentActivity] = []
@@ -293,6 +293,45 @@ async def get_dashboard_stats(
             status_code=500,
             detail="Failed to retrieve dashboard stats.",
         )
+
+
+@router.get("/leads")
+async def get_paginated_leads(
+    limit: int = 10,
+    offset: int = 0,
+    status: str | None = None,
+    current_user: User = Depends(get_current_user),
+):
+    """Return paginated leads from ERPNext with optional status filtering."""
+    try:
+        filters = {}
+        if status:
+            filters["status"] = status
+            
+        input_data = AnalyzeCrmInput(
+            doctype="Lead",
+            fields=["name", "lead_name", "status", "source", "creation", "email_id", "mobile_no"],
+            limit=limit,
+            limit_start=offset,
+            order_by="creation desc",
+            filters=filters if filters else None,
+        )
+        
+        response = await analyze_crm_data(input_data)
+        if response.get("status") == "error":
+            raise HTTPException(status_code=500, detail=response.get("message"))
+            
+        records = response.get("data", [])
+        return {
+            "status": "success",
+            "limit": limit,
+            "offset": offset,
+            "total_returned": len(records),
+            "data": records
+        }
+    except Exception as exc:
+        logger.error("Failed to retrieve paginated leads: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to retrieve leads")
 
 
 # ── Legacy per-run outcome (kept for backward compat) ────────────────────

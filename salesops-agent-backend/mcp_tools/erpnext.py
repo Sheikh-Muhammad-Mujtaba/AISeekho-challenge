@@ -62,6 +62,7 @@ class AnalyzeCrmInput(BaseModel):
     filters: Optional[Dict[str, Any]] = None
     fields: List[str] = ["name", "lead_name", "status", "source", "creation"]
     limit: int = 20
+    limit_start: int = 0
     order_by: str = "creation desc"
 
 
@@ -138,6 +139,7 @@ async def analyze_crm_data(input_data: AnalyzeCrmInput) -> Dict[str, Any]:
     params: Dict[str, Any] = {
         "fields": json.dumps(input_data.fields),
         "limit_page_length": input_data.limit,
+        "limit_start": input_data.limit_start,
         "order_by": input_data.order_by,
     }
     if input_data.filters:
