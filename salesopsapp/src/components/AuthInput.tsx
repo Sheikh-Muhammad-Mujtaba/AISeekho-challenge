@@ -2,6 +2,7 @@
  * AuthInput.tsx
  *
  * Reusable styled text input with label, error message, and optional icon.
+ * Aurora Intelligence glassmorphism styling with focus ring.
  * Used across Login, Register screens.
  */
 
@@ -21,38 +22,45 @@ interface AuthInputProps extends TextInputProps {
   label: string;
   error?: string;
   isPassword?: boolean;
+  icon?: React.ReactNode;
 }
 
 export const AuthInput = ({
   label,
   error,
   isPassword = false,
+  icon,
   ...props
 }: AuthInputProps) => {
   const [secureText, setSecureText] = useState(isPassword);
   const [isFocused, setIsFocused] = useState(false);
-  const { colors, spacing, borderRadius } = useTheme();
+  const { colors, spacing, borderRadius, mode } = useTheme();
 
   return (
     <View style={styles.wrapper}>
-      <Text style={[styles.label, { color: colors.textMuted }]}>{label}</Text>
+      <Text style={[styles.label, { color: colors.textSecondary }]}>{label}</Text>
       <View
         style={[
           styles.inputRow,
           {
-            backgroundColor: colors.surface,
+            backgroundColor: mode === 'dark'
+              ? colors.surfaceHighlight
+              : colors.surfaceHighlight,
             borderColor: colors.border,
             borderRadius: borderRadius.md,
             paddingHorizontal: spacing.md,
           },
           isFocused && {
             borderColor: colors.primary,
-            backgroundColor: colors.primaryMuted,
+            backgroundColor: mode === 'dark'
+              ? 'rgba(109, 92, 255, 0.08)'
+              : 'rgba(91, 87, 255, 0.04)',
           },
           !!error && {
             borderColor: colors.error,
           },
         ]}>
+        {icon && <View style={styles.inputIcon}>{icon}</View>}
         <TextInput
           style={[styles.input, { color: colors.text, paddingVertical: spacing.md }]}
           placeholderTextColor={colors.textMuted}
@@ -87,13 +95,15 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 13,
     fontWeight: '500',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
+    letterSpacing: 0.3,
   },
   inputRow: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
+  },
+  inputIcon: {
+    marginRight: 8,
   },
   input: {
     flex: 1,
