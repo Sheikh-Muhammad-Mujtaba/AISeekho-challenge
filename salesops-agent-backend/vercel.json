@@ -17,8 +17,7 @@
   ],
   "functions": {
     "main.py": {
-      "maxDuration": 120,
-      "supportsResponseStreaming": true
+      "maxDuration": 120
     }
   }
 }
