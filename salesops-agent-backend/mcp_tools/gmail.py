@@ -20,7 +20,6 @@ async def send_email(
     to_email: str,
     subject: str,
     body: str,
-    simulation_mode: bool = True,
 ) -> dict[str, Any]:
     """Send an email via Gmail SMTP.
 
@@ -28,21 +27,10 @@ async def send_email(
         to_email: Recipient address.
         subject: Email subject line.
         body: Plain-text email body.
-        simulation_mode: If True, logs without sending. Default True.
 
     Returns:
         Dict with status and message.
     """
-    if simulation_mode:
-        logger.info(
-            "send_email [simulation]: to=%s subject='%s'", to_email, subject
-        )
-        return {
-            "status": "success",
-            "message": "Simulated email send",
-            "data": {"to": to_email, "subject": subject, "body": body},
-        }
-
     # ── Real SMTP send ────────────────────────────────────────────────────
     gmail_user = settings.GMAIL_USER
     gmail_password = settings.GMAIL_APP_PASSWORD

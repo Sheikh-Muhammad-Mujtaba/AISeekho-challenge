@@ -21,6 +21,7 @@ from agents import (
     ItemHelpers,
     AsyncOpenAI,
     OpenAIChatCompletionsModel,
+    ModelSettings,
 )
 from agents.tracing import set_trace_processors
 
@@ -286,12 +287,13 @@ async def create_event_tool(
 lead_gen_agent = Agent[AgentContext](
     name="LeadGenAgent",
     model=model_medium,  # gemini-2.5-flash
+    model_settings=ModelSettings(include_usage=True),
     instructions=(
         "You are a specialized Lead Generation Agent. Your job is to discover and enrich leads. "
         "1. Use `search_leads_multi_tool` for broad discovery based on industry and location. "
         "2. Rank results by rating and review count. "
         "3. Enrich top prospects using `get_place_details_tool`. "
-        "Always output structured and concise data. Ensure simulation_mode=true unless specified."
+        "Always output structured and concise data."
     ),
     tools=[search_leads_multi_tool, search_businesses_tool, get_place_details_tool],
 )
@@ -299,12 +301,12 @@ lead_gen_agent = Agent[AgentContext](
 crm_agent = Agent[AgentContext](
     name="CRMAgent",
     model=model_openrouter,  # OpenRouter z-ai/glm-4.5-air:free (or Gemini-lite fallback)
+    model_settings=ModelSettings(include_usage=True),
     instructions=(
         "You are a specialized CRM Management Agent operating ERPNext. "
         "1. Create leads using `create_erpnext_lead_tool` and update them with `update_erpnext_lead_tool`. "
         "2. Read lead details with `read_erpnext_lead_tool`. "
         "3. Analyze pipeline health and insights with `analyze_crm_data_tool`. "
-        "Ensure simulation_mode=true unless specified."
     ),
     tools=[
         create_erpnext_lead_tool, read_erpnext_lead_tool,
@@ -315,6 +317,7 @@ crm_agent = Agent[AgentContext](
 outreach_agent = Agent[AgentContext](
     name="OutreachAgent",
     model=model_medium,  # gemini-2.5-flash
+    model_settings=ModelSettings(include_usage=True),
     instructions=(
         "You are a specialized Outreach Agent focused on communications and scheduling. "
         "Email Strategy: "
@@ -322,8 +325,7 @@ outreach_agent = Agent[AgentContext](
         "Calendar & Scheduling Strategy: "
         "1. ALWAYS check calendar availability with `check_availability_tool` for the specific date before scheduling, to avoid conflicts. "
         "2. When creating an event, use `create_event_tool`. You MUST provide `start_datetime` and `end_datetime` in strict ISO-8601 format (e.g., 'YYYY-MM-DDTHH:MM:SS'). "
-        "3. If meeting duration is unspecified, assume 1 hour. Include all relevant `attendee_emails` and a detailed `summary` and `description`. "
-        "Ensure simulation_mode=true unless specified otherwise."
+        "3. If meeting duration is unspecified, assume 1 hour. Include all relevant `attendee_emails` and a detailed `summary` and `description`."
     ),
     tools=[send_email_tool, check_availability_tool, create_event_tool],
 )
@@ -359,6 +361,7 @@ IF intent unclear OR missing params (industry, city, lead-ID):
 orchestrator_agent = Agent[AgentContext](
     name="SalesOpsOrchestrator",
     model=model_heavy,  # gemini-2.5-pro — complex multi-step reasoning
+    model_settings=ModelSettings(include_usage=True),
     instructions=SALES_AGENT_SYSTEM_PROMPT,
     tools=[
         lead_gen_agent.as_tool(

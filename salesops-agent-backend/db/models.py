@@ -35,6 +35,7 @@ class WorkflowRun(Base):
     
     user = relationship("User")
     steps = relationship("WorkflowStep", back_populates="run")
+    messages = relationship("ChatMessageLog", back_populates="run")
 
 class WorkflowStep(Base):
     __tablename__ = "workflow_steps"
@@ -72,3 +73,16 @@ class AuditTrace(Base):
     output_tokens = Column(Integer, nullable=True)
     cost_usd = Column(Float, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ChatMessageLog(Base):
+    """Stores every user message and agent response for conversation history."""
+    __tablename__ = "chat_messages"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    run_id = Column(String, ForeignKey("workflow_runs.id"), index=True)
+    role = Column(String, nullable=False)  # "user" | "assistant"
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    run = relationship("WorkflowRun", back_populates="messages")

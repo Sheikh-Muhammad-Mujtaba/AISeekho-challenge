@@ -86,13 +86,14 @@ async def validation_exception_handler(
 async def health_check():
     return {"status": "healthy"}
 
-from api.endpoints import chat, runs, logs, dashboard, calendar
+from api.endpoints import chat, runs, logs, dashboard, calendar, crm
 
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(runs.router, prefix="/api/runs", tags=["runs"])
 app.include_router(logs.router, prefix="/api/workflows", tags=["trace-logs"])
-app.include_router(dashboard.router, prefix="/api/workflows", tags=["dashboard"])
+app.include_router(dashboard.router, prefix="/api/dashboard", tags=["dashboard"])
 app.include_router(calendar.router, prefix="/api/calendar", tags=["calendar"])
+app.include_router(crm.router, prefix="/api/crm", tags=["crm"])
 
 
 if __name__ == "__main__":
