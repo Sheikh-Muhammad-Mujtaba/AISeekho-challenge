@@ -12,7 +12,6 @@ which persists ToolCallLog and AuditTrace rows automatically.
 """
 
 import logging
-from typing import AsyncGenerator
 
 from agents import (
     Agent,
@@ -466,32 +465,37 @@ async def run_orchestrator(
         current_run_id.reset(token)
 
 
-# ── Public API: streaming ────────────────────────────────────────────────
+# ── Public API: structured response with events ─────────────────────────
 
 from openai.types.responses import ResponseTextDeltaEvent
 from db.session import AsyncSessionLocal
 
 
-async def run_orchestrator_stream(
+async def run_orchestrator_with_events(
     messages: list,
     *,
     run_id: str | None = None,
     google_refresh_token: str | None = None,
-) -> AsyncGenerator[dict, None]:
-    """Run the agent orchestration loop with streaming SSE events.
+) -> dict:
+    """Run the agent loop and collect all events into a structured response.
 
-    Event contract (no duplicate content):
-      {"type": "run_id",      "run_id": "..."}          — first event
-      {"type": "agent",       "agent": "AgentName"}     — thinking / agent switch
-      {"type": "tool_start",  "tool": "tool_name"}      — tool is being called
-      {"type": "tool_result", "tool": "tool_name",
-                              "content": "preview..."}  — tool finished
-      {"type": "token",       "content": "delta text"}  — streamed text delta
-      {"type": "done"}                                  — stream finished
-      {"type": "error",       "content": "msg"}         — something broke
+    Returns:
+        {
+            "steps": [
+                {"type": "agent",       "agent": "AgentName"},
+                {"type": "tool_start",  "tool":  "tool_name"},
+                {"type": "tool_result", "tool":  "tool_name", "content": "..."},
+            ],
+            "message": "Final agent response text",
+        }
+
+    This replaces the SSE generator because Vercel's Python runtime
+    buffers entire responses — true streaming is not possible.
     """
     token = current_run_id.set(run_id)
+    steps: list[dict] = []
     current_tool_name = "unknown"
+
     try:
         context = AgentContext(
             run_id=run_id or "",
@@ -503,23 +507,16 @@ async def run_orchestrator_stream(
             context=context,
         )
 
-        logger.info("SSE stream started for run_id=%s", run_id)
+        logger.info("Agent run started for run_id=%s", run_id)
 
         async for event in result.stream_events():
-            # ── Token deltas (real-time text) ────────────────────────
-            if event.type == "raw_response_event":
-                if isinstance(event.data, ResponseTextDeltaEvent):
-                    delta = event.data.delta
-                    if delta:
-                        yield {"type": "token", "content": delta}
-
             # ── Agent hand-off (thinking indicator) ──────────────────
-            elif event.type == "agent_updated_stream_event":
+            if event.type == "agent_updated_stream_event":
                 agent_name = event.new_agent.name
                 logger.info("Agent hand-off → %s (run=%s)", agent_name, run_id)
-                yield {"type": "agent", "agent": agent_name}
+                steps.append({"type": "agent", "agent": agent_name})
 
-            # ── Tool lifecycle events ────────────────────────────────
+            # ── Tool lifecycle ───────────────────────────────────────
             elif event.type == "run_item_stream_event":
                 item = event.item
 
@@ -531,36 +528,36 @@ async def run_orchestrator_stream(
                         ),
                     )
                     logger.info("Tool call: %s (run=%s)", current_tool_name, run_id)
-                    yield {"type": "tool_start", "tool": current_tool_name}
+                    steps.append({"type": "tool_start", "tool": current_tool_name})
 
                 elif item.type == "tool_call_output_item":
-                    output_preview = str(item.output)[:300]
-                    yield {
+                    output_preview = str(item.output)[:500]
+                    steps.append({
                         "type": "tool_result",
                         "tool": current_tool_name,
                         "content": output_preview,
-                    }
+                    })
 
-                # NOTE: message_output_item is intentionally skipped.
-                # It contains the full accumulated text which has already
-                # been streamed to the client via "token" deltas above.
+            # Token deltas are not collected — we use final_output
 
-        # Stream fully consumed — flush tracing writes & update status
+        # Run complete — flush tracing writes
         await flush_pending_writes()
-        logger.info("SSE stream completed for run_id=%s", run_id)
+
+        final = result.final_output or "I processed your request but didn't generate a text response."
+        logger.info("Agent run completed for run_id=%s (output_len=%d)", run_id, len(final))
 
         if run_id:
             await _update_run_status(run_id, "completed")
 
-        # Signal completion — no content (client already has it from tokens)
-        yield {"type": "done"}
+        return {"steps": steps, "message": final}
 
     except Exception as exc:
-        logger.error("Streaming error (run=%s): %s", run_id, exc, exc_info=True)
+        logger.error("Agent run error (run=%s): %s", run_id, exc, exc_info=True)
         await flush_pending_writes()
         if run_id:
             await _update_run_status(run_id, "failed")
-        yield {"type": "error", "content": "Something went wrong. Please try again."}
+        raise
     finally:
         current_run_id.reset(token)
+
 

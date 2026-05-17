@@ -1,17 +1,25 @@
-"""Chat endpoints — SalesOps Agent entry points (standard + SSE streaming)."""
+"""Chat endpoints — SalesOps Agent entry points.
 
-import json
+POST /chat        → simple response (backward compat)
+POST /chat/stream → structured JSON with all phases (agent thinking, tool
+                    calls, final answer) so the frontend can render a
+                    ChatGPT/Claude-style experience with animations.
+
+NOTE: Vercel's Python runtime buffers responses — true SSE streaming is
+not possible.  Instead we collect every event during the agent run and
+return them as a single JSON body.
+"""
+
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent_core.orchestrator import (
     run_orchestrator,
-    run_orchestrator_stream,
+    run_orchestrator_with_events,
     SALES_AGENT_SYSTEM_PROMPT,
 )
 from core.security import get_current_user, decrypt_token
@@ -80,7 +88,7 @@ def _build_messages(request: ChatRequest) -> list[dict]:
     return msgs
 
 
-# ── POST /chat — non-streaming (backward compat) ────────────────────────
+# ── POST /chat — simple response (backward compat) ──────────────────────
 
 @router.post("/", response_model=ChatResponse)
 async def chat_with_agent(
@@ -106,7 +114,7 @@ async def chat_with_agent(
         )
 
 
-# ── POST /chat/stream — SSE streaming ───────────────────────────────────
+# ── POST /chat/stream — structured JSON with all phases ─────────────────
 
 @router.post("/stream")
 async def chat_stream(
@@ -114,40 +122,51 @@ async def chat_stream(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Server-Sent Events streaming endpoint.
+    """Returns a structured JSON response with all agent phases.
 
-    Each SSE line is a JSON object:
-      {"type": "agent",       "agent": "AgentName"}
-      {"type": "tool",        "tool": "tool_name"}
-      {"type": "tool_output", "content": "..."}
-      {"type": "token",       "content": "partial text"}
-      {"type": "message",     "content": "full message"}
-      {"type": "done",        "content": "final output"}
-      {"type": "error",       "content": "error msg"}
+    Response shape:
+    {
+      "run_id": "uuid",
+      "status": "completed" | "failed",
+      "steps": [
+        {"type": "agent",       "agent": "SalesOpsOrchestrator"},
+        {"type": "tool_start",  "tool":  "search_leads_multi"},
+        {"type": "tool_result", "tool":  "search_leads_multi",
+                                "content": "preview..."},
+        {"type": "agent",       "agent": "SalesOpsOrchestrator"},
+      ],
+      "message": "Here are the results..."
+    }
+
+    The frontend can render `steps` sequentially with animations
+    (thinking indicator, tool badges, etc.) and display `message`
+    with a typewriter effect — giving a ChatGPT/Claude experience
+    without requiring true SSE streaming.
     """
-    run_id = await _resolve_run_id(request.run_id, current_user.id, db)
-    messages = _build_messages(request)
+    try:
+        run_id = await _resolve_run_id(request.run_id, current_user.id, db)
+        messages = _build_messages(request)
 
-    async def event_generator():
-        try:
-            # Send run_id as first event so the client can track the conversation
-            yield f"data: {json.dumps({'type': 'run_id', 'run_id': run_id})}\n\n"
-            async for event in run_orchestrator_stream(
-                messages,
-                run_id=run_id,
-                google_refresh_token=decrypt_token(current_user.google_refresh_token)
-            ):
-                yield f"data: {json.dumps(event)}\n\n"
-        except Exception as exc:
-            logger.error("SSE stream error for run=%s: %s", run_id, exc, exc_info=True)
-            yield f"data: {json.dumps({'type': 'error', 'content': 'Something went wrong. Please try again.'})}\n\n"
+        result = await run_orchestrator_with_events(
+            messages,
+            run_id=run_id,
+            google_refresh_token=decrypt_token(
+                current_user.google_refresh_token
+            ),
+        )
 
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
+        return {
+            "run_id": run_id,
+            "status": "completed",
+            "steps": result["steps"],
+            "message": result["message"],
+        }
+
+    except Exception as exc:
+        logger.error(
+            "chat_stream error: %s", exc, exc_info=True
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Something went wrong while processing your request.",
+        )
