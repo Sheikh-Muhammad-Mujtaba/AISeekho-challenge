@@ -27,6 +27,7 @@ from db.models import (
     ChatMessageLog,
 )
 from db.session import get_db
+from mcp_tools.erpnext import analyze_crm_data, AnalyzeCrmInput
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -66,6 +67,8 @@ class DashboardResponse(BaseModel):
     pipeline: PipelineStats
     usage: AgentUsageStats
     recent_activity: list[RecentActivity]
+    categorized_leads: dict = {}
+    raw_leads: list = []
 
 
 # ── ERPNext helpers ──────────────────────────────────────────────────────
@@ -117,6 +120,41 @@ async def _fetch_erpnext_pipeline() -> PipelineStats:
     except Exception as exc:
         logger.error("ERPNext pipeline fetch failed: %s", exc)
         return PipelineStats()
+
+async def _fetch_recent_leads() -> tuple[dict, list]:
+    """Fetch recent leads and categorize them."""
+    try:
+        input_data = AnalyzeCrmInput(
+            doctype="Lead",
+            fields=["name", "lead_name", "status", "source", "creation", "email_id", "mobile_no"],
+            limit=100,
+            order_by="creation desc"
+        )
+        response = await analyze_crm_data(input_data)
+        if response.get("status") == "error":
+            return {}, []
+            
+        records = response.get("data", [])
+        
+        categorized = {
+            "Open": [],
+            "Replied": [],
+            "Opportunity": [],
+            "Converted": [],
+            "Do Not Contact": []
+        }
+        
+        for record in records:
+            status = record.get("status", "Open")
+            if status in categorized:
+                categorized[status].append(record)
+            else:
+                categorized["Open"].append(record)
+                
+        return categorized, records
+    except Exception as exc:
+        logger.error("ERPNext recent leads fetch failed: %s", exc)
+        return {}, []
 
 
 # ── Local DB helpers ─────────────────────────────────────────────────────
@@ -237,11 +275,14 @@ async def get_dashboard_stats(
         pipeline = await _fetch_erpnext_pipeline()
         usage = await _fetch_usage_stats(current_user.id, db)
         activity = await _fetch_recent_activity(current_user.id, db)
+        categorized_leads, raw_leads = await _fetch_recent_leads()
 
         return DashboardResponse(
             pipeline=pipeline,
             usage=usage,
             recent_activity=activity,
+            categorized_leads=categorized_leads,
+            raw_leads=raw_leads,
         )
     except Exception as exc:
         logger.error(
