@@ -1,7 +1,10 @@
 """Custom TracingProcessor — persists tool calls and audit traces to Postgres.
 
-The SDK's TracingProcessor callbacks are **synchronous**, so we schedule
-async DB writes on the running event loop via `asyncio.create_task`.
+The SDK's TracingProcessor callbacks are **synchronous**, so we collect
+coroutines in a pending-writes queue and flush them at the end of the
+orchestrator run.  This is critical on Vercel serverless where
+`asyncio.create_task` fire-and-forget coroutines are silently cancelled
+when the response finishes.
 
 Architecture (from SDK docs):
   - `span.span_data` holds the typed data object (FunctionSpanData, etc.)
@@ -32,6 +35,29 @@ logger = logging.getLogger(__name__)
 # ── Context variable — set by the orchestrator before each Runner call ───
 current_run_id: ContextVar[str | None] = ContextVar("current_run_id", default=None)
 
+# ── Pending writes queue ────────────────────────────────────────────────
+# Coroutines are appended here by synchronous callbacks and flushed by
+# the orchestrator after the agent run completes (before the response ends).
+_pending_writes: list[asyncio.coroutines] = []
+
+
+async def flush_pending_writes() -> None:
+    """Await all queued DB writes.  Call this from the orchestrator after
+    the agent run finishes so every log row is committed before the
+    serverless function exits."""
+    global _pending_writes
+    writes = _pending_writes.copy()
+    _pending_writes.clear()
+    if not writes:
+        return
+    logger.info("Flushing %d pending DB writes…", len(writes))
+    results = await asyncio.gather(*writes, return_exceptions=True)
+    for i, result in enumerate(results):
+        if isinstance(result, Exception):
+            logger.error("Pending write %d failed: %s", i, result, exc_info=result)
+    logger.info("Flush complete — %d writes processed.", len(results))
+
+
 # ── Approximate pricing per 1M tokens (USD) ─────────────────────────────
 # Source: public pricing pages. Update as needed.
 MODEL_PRICING: dict[str, dict[str, float]] = {
@@ -56,15 +82,11 @@ def _estimate_cost(model: str | None, input_t: int, output_t: int) -> float | No
     )
 
 
-# ── Sync-safe task scheduler ────────────────────────────────────────────
+# ── Queue helper (replaces old fire-and-forget _schedule) ────────────────
 
-def _schedule(coro) -> None:
-    """Schedule an async coroutine from a synchronous callback."""
-    try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(coro)
-    except RuntimeError:
-        logger.debug("No running event loop — skipping async DB write.")
+def _enqueue(coro) -> None:
+    """Append an async coroutine to the pending-writes queue."""
+    _pending_writes.append(coro)
 
 
 # ── DB persistence helpers ───────────────────────────────────────────────
@@ -148,7 +170,12 @@ def _safe_json(val: str | dict | None) -> dict | None:
 # ── DatabaseTracingProcessor ────────────────────────────────────────────
 
 class DatabaseTracingProcessor(TracingProcessor):
-    """Intercepts SDK trace/span lifecycle and logs to the database."""
+    """Intercepts SDK trace/span lifecycle and queues DB writes.
+
+    Writes are NOT dispatched immediately.  They are collected in
+    ``_pending_writes`` and flushed via ``flush_pending_writes()`` which
+    the orchestrator calls after the run completes.
+    """
 
     # ── Trace lifecycle ──────────────────────────────────────────────
 
@@ -166,7 +193,7 @@ class DatabaseTracingProcessor(TracingProcessor):
         if not run_id:
             return
         workflow = getattr(trace, "name", "SalesOpsAgent")
-        _schedule(_write_audit_trace(
+        _enqueue(_write_audit_trace(
             run_id=run_id,
             agent_name=workflow,
             thought=f"Trace completed: {getattr(trace, 'trace_id', '?')}",
@@ -200,7 +227,6 @@ class DatabaseTracingProcessor(TracingProcessor):
 
         # ── function → ToolCallLog ───────────────────────────────
         if span_type == "function":
-            # Calculate duration from span timestamps
             started = getattr(span, "_started_at", None)
             ended = getattr(span, "_ended_at", None)
             dur = None
@@ -210,7 +236,7 @@ class DatabaseTracingProcessor(TracingProcessor):
                 except Exception:
                     pass
 
-            _schedule(_write_tool_call(
+            _enqueue(_write_tool_call(
                 run_id=run_id,
                 tool_name=getattr(sd, "name", "unknown_tool"),
                 input_data=_safe_json(getattr(sd, "input", None)),
@@ -227,7 +253,7 @@ class DatabaseTracingProcessor(TracingProcessor):
         elif span_type == "agent":
             name = getattr(sd, "name", "UnknownAgent")
             tools = getattr(sd, "tools", []) or []
-            _schedule(_write_audit_trace(
+            _enqueue(_write_audit_trace(
                 run_id=run_id,
                 agent_name=name,
                 thought=f"Agent '{name}' executed. Tools: {tools}",
@@ -241,7 +267,7 @@ class DatabaseTracingProcessor(TracingProcessor):
             out_tok = usage.get("output_tokens", 0) or 0
             cost = _estimate_cost(model, in_tok, out_tok)
 
-            _schedule(_write_audit_trace(
+            _enqueue(_write_audit_trace(
                 run_id=run_id,
                 agent_name=model or "LLM",
                 thought=(
@@ -258,7 +284,7 @@ class DatabaseTracingProcessor(TracingProcessor):
         elif span_type == "handoff":
             from_a = getattr(sd, "from_agent", "?")
             to_a = getattr(sd, "to_agent", "?")
-            _schedule(_write_audit_trace(
+            _enqueue(_write_audit_trace(
                 run_id=run_id,
                 agent_name=from_a,
                 thought=f"Handoff: '{from_a}' → '{to_a}'",

@@ -26,7 +26,7 @@ from agents import (
 from agents.tracing import set_trace_processors
 
 from core.config import settings
-from agent_core.tracing import DatabaseTracingProcessor, current_run_id
+from agent_core.tracing import DatabaseTracingProcessor, current_run_id, flush_pending_writes
 
 logger = logging.getLogger(__name__)
 
@@ -416,6 +416,23 @@ def _build_input(messages: list[dict]) -> str:
 
 # ── Public API: non-streaming ────────────────────────────────────────────
 
+async def _update_run_status(run_id: str, status: str) -> None:
+    """Update the WorkflowRun row status (completed / failed)."""
+    try:
+        async with AsyncSessionLocal() as session:
+            from sqlalchemy import update
+            from db.models import WorkflowRun
+            await session.execute(
+                update(WorkflowRun)
+                .where(WorkflowRun.id == run_id)
+                .values(status=status)
+            )
+            await session.commit()
+            logger.info("WorkflowRun %s → %s", run_id, status)
+    except Exception:
+        logger.exception("Failed to update run status for %s", run_id)
+
+
 async def run_orchestrator(
     messages: list,
     *,
@@ -434,7 +451,17 @@ async def run_orchestrator(
             input=_build_input(messages),
             context=context,
         )
-        return result.final_output or "I processed your request but didn't generate a text response."
+        output = result.final_output or "I processed your request but didn't generate a text response."
+        # Flush all queued tracing writes before the response returns
+        await flush_pending_writes()
+        if run_id:
+            await _update_run_status(run_id, "completed")
+        return output
+    except Exception:
+        if run_id:
+            await _update_run_status(run_id, "failed")
+        await flush_pending_writes()
+        raise
     finally:
         current_run_id.reset(token)
 
@@ -442,6 +469,7 @@ async def run_orchestrator(
 # ── Public API: streaming ────────────────────────────────────────────────
 
 from openai.types.responses import ResponseTextDeltaEvent
+from db.session import AsyncSessionLocal
 
 
 async def run_orchestrator_stream(
@@ -462,6 +490,7 @@ async def run_orchestrator_stream(
       {"type": "error",       "content": "error msg"}
     """
     token = current_run_id.set(run_id)
+    run_failed = False
     try:
         context = AgentContext(
             run_id=run_id or "",
@@ -509,13 +538,24 @@ async def run_orchestrator_stream(
                     if text:
                         yield {"type": "message", "content": text}
 
-        # Stream fully consumed — send final output
+        # Stream fully consumed — flush all queued tracing writes
+        await flush_pending_writes()
+
         final = result.final_output or ""
         logger.info("SSE stream completed for run_id=%s (output_len=%d)", run_id, len(final))
+
+        if run_id:
+            await _update_run_status(run_id, "completed")
+
         yield {"type": "done", "content": final}
 
     except Exception as exc:
+        run_failed = True
         logger.error("Streaming error (run=%s): %s", run_id, exc, exc_info=True)
+        # Still flush whatever writes were queued before the error
+        await flush_pending_writes()
+        if run_id:
+            await _update_run_status(run_id, "failed")
         yield {"type": "error", "content": "Something went wrong. Please try again."}
     finally:
         current_run_id.reset(token)
