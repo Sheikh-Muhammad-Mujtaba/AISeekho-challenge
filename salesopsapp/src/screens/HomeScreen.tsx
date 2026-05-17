@@ -1,18 +1,17 @@
 import React from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, ScrollView, Dimensions,
+  View, Text, StyleSheet, TouchableOpacity, ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, {
-  Defs, LinearGradient, RadialGradient, Stop, Rect, Circle as SvgCircle,
+  Defs, LinearGradient, RadialGradient, Stop, Rect,
 } from 'react-native-svg';
 import { useAppSelector } from '../store/hooks';
 import { useTheme } from '../hooks/useTheme';
 import { MetricCard } from '../components/MetricCard';
 import { PlaybookCard } from '../components/PlaybookCard';
 import {
-  Bell, Bot, Search, Zap, Building2, Mail,
-  Sparkles,
+  Bell, Bot, Search, Zap, Building2, Mail, Sparkles,
 } from '../constants/icons';
 import type { BottomTabParamList } from '../navigation/BottomTabs';
 import type { AppStackParamList } from '../navigation/index';
@@ -62,6 +61,7 @@ export const HomeScreen = ({ navigation }: Props) => {
             </View>
           </View>
           <TouchableOpacity
+            onPress={() => { navigation.navigate('NotificationsTab') }}
             style={[
               s.bellWrap,
               {
@@ -76,14 +76,6 @@ export const HomeScreen = ({ navigation }: Props) => {
 
         <View style={[
           s.statusPill,
-          {
-            backgroundColor: mode === 'dark' ? 'rgba(34,197,94,0.08)' : 'rgba(22,163,74,0.06)',
-            borderColor: mode === 'dark' ? 'rgba(34,197,94,0.25)' : 'rgba(22,163,74,0.2)',
-            borderRadius: borderRadius.xl,
-            paddingHorizontal: 14,
-            paddingVertical: 10,
-            marginBottom: 20,
-          },
         ]}>
           <View style={[s.statusDot, { backgroundColor: colors.success }]} />
           <View>
@@ -228,7 +220,7 @@ const s = StyleSheet.create({
 
   statusPill: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
-    alignSelf: 'flex-start', borderWidth: 1,
+    alignSelf: 'flex-start', borderWidth: 1, paddingBottom: 15,
   },
   statusDot: { width: 10, height: 10, borderRadius: 5 },
   statusMain: { fontSize: 14, fontWeight: '600' },

@@ -33,8 +33,8 @@ export type AppStackParamList = {
   MainTabs: undefined;
   Discovery: undefined;
   CRMLeads: undefined;
-  TraceLogs: undefined;
-  OutcomeDashboard: undefined;
+  TraceLogs: { runId: string } | undefined;
+  OutcomeDashboard: { runId: string } | undefined;
   SimulationConsole: undefined;
 };
 

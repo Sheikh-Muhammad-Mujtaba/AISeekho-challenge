@@ -9,23 +9,36 @@ import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator }
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../hooks/useTheme';
 import { ArrowLeft, Terminal, CheckCircle, AlertCircle, Clock } from '../constants/icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { agentApi } from '../services/agentApi';
 
 export const TraceLogsScreen = () => {
   const { colors, spacing, borderRadius } = useTheme();
   const navigation = useNavigation();
+  const route = useRoute<any>();
+  const runId: string | undefined = route.params?.runId;
   const [logs, setLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchLogs = async () => {
-      const result = await agentApi.getTraceLogs('mock_run_123');
-      setLogs(result.logs);
+    if (!runId) {
+      setError('No workflow run selected.');
       setLoading(false);
+      return;
+    }
+    const fetchLogs = async () => {
+      try {
+        const result = await agentApi.getTraceLogs(runId);
+        setLogs(result.logs ?? []);
+      } catch (e: any) {
+        setError(e?.message ?? 'Failed to load trace logs.');
+      } finally {
+        setLoading(false);
+      }
     };
     fetchLogs();
-  }, []);
+  }, [runId]);
 
   const renderLog = ({ item, index }: { item: any, index: number }) => {
     const isLast = index === logs.length - 1;
@@ -76,6 +89,11 @@ export const TraceLogsScreen = () => {
         <View style={styles.center}>
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
+      ) : error ? (
+        <View style={styles.center}>
+          <AlertCircle size={32} color={colors.textMuted} />
+          <Text style={{ color: colors.textMuted, fontSize: 14, marginTop: 12, textAlign: 'center' }}>{error}</Text>
+        </View>
       ) : (
         <FlatList
           data={logs}
@@ -83,6 +101,11 @@ export const TraceLogsScreen = () => {
           renderItem={renderLog}
           contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.xl, paddingTop: spacing.md }}
           showsVerticalScrollIndicator={false}
+          ListEmptyComponent={
+            <View style={styles.center}>
+              <Text style={{ color: colors.textMuted, fontSize: 14 }}>No trace logs available.</Text>
+            </View>
+          }
         />
       )}
     </SafeAreaView>

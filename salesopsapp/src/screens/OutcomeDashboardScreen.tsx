@@ -10,7 +10,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Stop, Rect } from 'react-native-svg';
 import { useTheme } from '../hooks/useTheme';
 import { ArrowLeft, CheckCircle2, Clock, ArrowRight, Database } from '../constants/icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { agentApi } from '../services/agentApi';
 import { MetricCard } from '../components/MetricCard';
 
@@ -24,14 +24,35 @@ const WORKFLOW_ITEMS = [
 export const OutcomeDashboardScreen = () => {
   const { colors, spacing, borderRadius, mode } = useTheme();
   const navigation = useNavigation();
+  const route = useRoute<any>();
+  const runId: string | undefined = route.params?.runId;
   const [metrics, setMetrics] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!runId) {
+      setError('No workflow run selected.');
+      return;
+    }
     (async () => {
-      const result = await agentApi.getOutcomeMetrics('mock_run_123');
-      setMetrics(result.metrics);
+      try {
+        const result = await agentApi.getOutcomeMetrics(runId);
+        setMetrics(result.metrics);
+      } catch (e: any) {
+        setError(e?.message ?? 'Failed to load outcome data.');
+      }
     })();
-  }, []);
+  }, [runId]);
+
+  if (error) {
+    return (
+      <SafeAreaView style={[st.root, { backgroundColor: colors.background }]} edges={['top']}>
+        <View style={st.center}>
+          <Text style={{ color: colors.textMuted, fontSize: 14, textAlign: 'center' }}>{error}</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   if (!metrics) {
     return (
