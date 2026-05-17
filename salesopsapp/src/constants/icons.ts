@@ -16,6 +16,7 @@ export {
   ChevronRight,
   ChevronLeft,
   ArrowLeft,
+  ArrowRight,
   X,
   Search,
   Plus,
@@ -24,6 +25,8 @@ export {
   Menu,
   Filter,
   RefreshCw,
+  Play,
+  RotateCcw,
 
   // Auth / User
   Mail,
@@ -36,6 +39,7 @@ export {
   Shield,
   Fingerprint,
   CheckCircle,
+  CheckCircle2,
   AlertCircle,
 
   // Chat
@@ -56,6 +60,9 @@ export {
   Activity,
   PieChart,
   LineChart,
+  Flame,
+  Cpu,
+  CircleDot,
 
   // Notifications
   BellRing,
@@ -90,4 +97,5 @@ export {
   Tag,
   Server,
   Terminal,
+  Database,
 } from 'lucide-react-native';

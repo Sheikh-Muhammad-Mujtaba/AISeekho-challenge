@@ -1,66 +1,109 @@
 /**
- * theme.ts — Dark & Light theme palettes + shared design tokens.
+ * theme.ts — Aurora Intelligence Dark & Light theme palettes + shared design tokens.
+ *
+ * Dark: Deep navy (#07111F) with aurora gradients (#6D5CFF → #885CF6 → #36CFFF)
+ * Light: Clean white (#F8F9FC) with vibrant aurora accents
  */
 
 export type ThemeMode = 'dark' | 'light';
 
 const darkColors = {
-  background: '#05050A',
-  surface: 'rgba(255, 255, 255, 0.04)',
-  surfaceHighlight: 'rgba(255, 255, 255, 0.08)',
-  surfaceElevated: 'rgba(255, 255, 255, 0.06)',
-  primary: '#6366F1',
-  primaryLight: '#818CF8',
-  primaryDark: '#4338CA',
-  primaryMuted: 'rgba(99, 102, 241, 0.12)',
-  accent: '#06B6D4',
-  accentMuted: 'rgba(6, 182, 212, 0.12)',
+  background: '#07111F',
+  surface: '#0D1728',
+  surfaceHighlight: '#121F35',
+  surfaceElevated: '#162032',
+
+  primary: '#6D5CFF',
+  primaryLight: '#885CF6',
+  primaryDark: '#5A4AD4',
+  primaryMuted: 'rgba(109, 92, 255, 0.15)',
+
+  accent: '#36CFFF',
+  accentMuted: 'rgba(54, 207, 255, 0.12)',
+  accentGreen: '#2BE4B8',
+  accentGreenMuted: 'rgba(43, 228, 184, 0.12)',
+
   text: '#F8FAFC',
-  textSecondary: '#CBD5E1',
-  textMuted: '#64748B',
-  border: 'rgba(255, 255, 255, 0.08)',
-  borderLight: 'rgba(255, 255, 255, 0.04)',
+  textSecondary: '#8FA3BF',
+  textMuted: '#5A7190',
+
+  border: 'rgba(143, 163, 191, 0.15)',
+  borderLight: 'rgba(143, 163, 191, 0.08)',
+
   error: '#EF4444',
   errorMuted: 'rgba(239, 68, 68, 0.12)',
-  success: '#10B981',
-  successMuted: 'rgba(16, 185, 129, 0.12)',
+  success: '#22C55E',
+  successMuted: 'rgba(34, 197, 94, 0.12)',
   warning: '#F59E0B',
   warningMuted: 'rgba(245, 158, 11, 0.12)',
-  info: '#3B82F6',
-  infoMuted: 'rgba(59, 130, 246, 0.12)',
-  overlay: 'rgba(0, 0, 0, 0.6)',
-  card: 'rgba(255, 255, 255, 0.03)',
-  tabBar: 'rgba(5, 5, 10, 0.95)',
+  info: '#36CFFF',
+  infoMuted: 'rgba(54, 207, 255, 0.12)',
+
+  overlay: 'rgba(7, 17, 31, 0.7)',
+  card: '#0D1728',
+  tabBar: '#0D1728',
+
+  // Aurora gradient tokens
+  auroraStart: '#6D5CFF',
+  auroraMid: '#885CF6',
+  auroraEnd: '#36CFFF',
+  auroraTeal: '#2BE4B8',
+
+  // Glass effect tokens
+  glassBg: 'rgba(13, 23, 40, 0.6)',
+  glassStroke: 'rgba(143, 163, 191, 0.2)',
+  glassHighlight: 'rgba(255, 255, 255, 0.05)',
+
   statusBar: 'light-content' as const,
 };
 
 const lightColors = {
-  background: '#F8FAFC',
+  background: '#F8F9FC',
   surface: '#FFFFFF',
-  surfaceHighlight: '#F1F5F9',
+  surfaceHighlight: '#EEF4FA',
   surfaceElevated: '#FFFFFF',
-  primary: '#6366F1',
-  primaryLight: '#818CF8',
-  primaryDark: '#4338CA',
-  primaryMuted: 'rgba(99, 102, 241, 0.08)',
-  accent: '#0891B2',
-  accentMuted: 'rgba(8, 145, 178, 0.08)',
+
+  primary: '#5B57FF',
+  primaryLight: '#885CF6',
+  primaryDark: '#4A46D4',
+  primaryMuted: 'rgba(91, 87, 255, 0.08)',
+
+  accent: '#28B7FF',
+  accentMuted: 'rgba(40, 183, 255, 0.08)',
+  accentGreen: '#14D7B0',
+  accentGreenMuted: 'rgba(20, 215, 176, 0.08)',
+
   text: '#0F172A',
-  textSecondary: '#475569',
+  textSecondary: '#64748B',
   textMuted: '#94A3B8',
+
   border: '#E2E8F0',
   borderLight: '#F1F5F9',
+
   error: '#EF4444',
-  errorMuted: 'rgba(239, 68, 68, 0.08)',
-  success: '#10B981',
-  successMuted: 'rgba(16, 185, 129, 0.08)',
-  warning: '#F59E0B',
-  warningMuted: 'rgba(245, 158, 11, 0.08)',
-  info: '#3B82F6',
-  infoMuted: 'rgba(59, 130, 246, 0.08)',
+  errorMuted: 'rgba(239, 68, 68, 0.06)',
+  success: '#16A34A',
+  successMuted: 'rgba(22, 163, 74, 0.08)',
+  warning: '#D97706',
+  warningMuted: 'rgba(217, 119, 6, 0.08)',
+  info: '#28B7FF',
+  infoMuted: 'rgba(40, 183, 255, 0.08)',
+
   overlay: 'rgba(0, 0, 0, 0.3)',
   card: '#FFFFFF',
-  tabBar: 'rgba(255, 255, 255, 0.95)',
+  tabBar: '#FFFFFF',
+
+  // Aurora gradient tokens
+  auroraStart: '#5B57FF',
+  auroraMid: '#885CF6',
+  auroraEnd: '#28B7FF',
+  auroraTeal: '#14D7B0',
+
+  // Glass effect tokens
+  glassBg: 'rgba(255, 255, 255, 0.7)',
+  glassStroke: 'rgba(226, 232, 240, 0.5)',
+  glassHighlight: 'rgba(255, 255, 255, 0.9)',
+
   statusBar: 'dark-content' as const,
 };
 

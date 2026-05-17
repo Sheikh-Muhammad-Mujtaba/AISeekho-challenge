@@ -1,12 +1,13 @@
 /**
  * navigation/BottomTabs.tsx
  *
- * Bottom tab navigator for the main app screens.
+ * Aurora Intelligence styled bottom tab navigator.
+ * Deep navy dark mode / clean white light mode with aurora accent colors.
  */
 
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Platform } from 'react-native';
+import { Platform, View } from 'react-native';
 import { useTheme } from '../hooks/useTheme';
 import { Home, MessageSquare, Bell, User } from '../constants/icons';
 
@@ -25,7 +26,7 @@ export type BottomTabParamList = {
 const Tab = createBottomTabNavigator<BottomTabParamList>();
 
 export const BottomTabs = () => {
-  const { colors, spacing } = useTheme();
+  const { colors, spacing, mode } = useTheme();
 
   return (
     <Tab.Navigator
@@ -42,11 +43,18 @@ export const BottomTabs = () => {
           height: Platform.OS === 'ios' ? 88 : 68,
           paddingBottom: Platform.OS === 'ios' ? 28 : 12,
           paddingTop: 12,
+          ...(mode === 'light' ? {
+            shadowColor: '#64748B',
+            shadowOffset: { width: 0, height: -2 },
+            shadowOpacity: 0.06,
+            shadowRadius: 8,
+          } : {}),
         },
         tabBarLabelStyle: {
-          fontSize: 12,
-          fontWeight: '500',
+          fontSize: 11,
+          fontWeight: '600',
           marginTop: 4,
+          letterSpacing: 0.2,
         },
       }}
     >

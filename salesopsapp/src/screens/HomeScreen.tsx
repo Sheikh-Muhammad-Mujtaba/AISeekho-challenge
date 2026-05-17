@@ -1,20 +1,18 @@
-/**
- * HomeScreen.tsx — Post-login landing, uses Redux for user state.
- */
-
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import {
+  View, Text, StyleSheet, TouchableOpacity, ScrollView, Dimensions,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Svg, {
+  Defs, LinearGradient, RadialGradient, Stop, Rect, Circle as SvgCircle,
+} from 'react-native-svg';
 import { useAppSelector } from '../store/hooks';
 import { useTheme } from '../hooks/useTheme';
-import { 
-  MessageSquare, 
-  Search,
-  Users,
-  Activity,
-  Terminal,
-  ChevronRight,
-  TrendingUp,
+import { MetricCard } from '../components/MetricCard';
+import { PlaybookCard } from '../components/PlaybookCard';
+import {
+  Bell, Bot, Search, Zap, Building2, Mail,
+  Sparkles,
 } from '../constants/icons';
 import type { BottomTabParamList } from '../navigation/BottomTabs';
 import type { AppStackParamList } from '../navigation/index';
@@ -27,137 +25,253 @@ type Props = CompositeScreenProps<
   NativeStackScreenProps<AppStackParamList>
 >;
 
-const MetricCard = ({ title, value, trend, positive }: { title: string; value: string; trend: string; positive: boolean }) => {
-  const { colors, spacing, borderRadius } = useTheme();
-  return (
-    <View style={[styles.metricCard, { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: borderRadius.lg, padding: spacing.md }]}>
-      <Text style={[styles.metricTitle, { color: colors.textMuted }]}>{title}</Text>
-      <Text style={[styles.metricValue, { color: colors.text }]}>{value}</Text>
-      <View style={styles.trendRow}>
-        {positive ? <TrendingUp size={14} color={colors.success} /> : <Activity size={14} color={colors.warning} />}
-        <Text style={[styles.trendText, { color: positive ? colors.success : colors.warning }]}>{trend}</Text>
-      </View>
-    </View>
-  );
-};
-
-const QuickCard = ({ icon, label, desc, onPress }: { icon: React.ReactNode; label: string; desc: string; onPress: () => void }) => {
-  const { colors, spacing, borderRadius } = useTheme();
-  return (
-    <TouchableOpacity 
-      style={[styles.quickCard, { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: borderRadius.lg, padding: spacing.md, gap: spacing.md }]} 
-      onPress={onPress} 
-      activeOpacity={0.8}
-    >
-      <View style={[styles.cardIcon, { backgroundColor: colors.primaryMuted, borderRadius: borderRadius.md }]}>
-        {icon}
-      </View>
-      <View style={styles.cardText}>
-        <Text style={[styles.cardLabel, { color: colors.text }]}>{label}</Text>
-        <Text style={[styles.cardDesc, { color: colors.textMuted }]}>{desc}</Text>
-      </View>
-      <ChevronRight size={18} color={colors.textMuted} />
-    </TouchableOpacity>
-  );
-};
-
 export const HomeScreen = ({ navigation }: Props) => {
-  const user = useAppSelector((s) => s.auth.user);
-  const { colors, spacing, borderRadius } = useTheme();
-  
-  const displayName = user?.name ?? user?.email?.split('@')[0] ?? 'Agent';
-  const initials = displayName.split(' ').map((s: string) => s[0]).join('').toUpperCase().slice(0, 2);
+  const user = useAppSelector((st) => st.auth.user);
+  const { colors, spacing, borderRadius, mode } = useTheme();
+
+  const displayName = user?.name ?? user?.email?.split('@')[0] ?? 'Amad Asif';
+  const initials = displayName.split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2);
+
+  const getGreeting = () => {
+    const h = new Date().getHours();
+    if (h < 12) return 'Good morning,';
+    if (h < 17) return 'Good afternoon,';
+    return 'Good evening,';
+  };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
-      <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.xl }} showsVerticalScrollIndicator={false}>
-        
-        <View style={[styles.topBar, { paddingTop: spacing.lg, marginBottom: spacing.md }]}>
-          <View>
-            <Text style={[styles.greeting, { color: colors.textMuted }]}>Good to see you,</Text>
-            <Text style={[styles.name, { color: colors.text }]}>{displayName} 👋</Text>
+    <SafeAreaView style={[s.root, { backgroundColor: colors.background }]} edges={['top']}>
+      <ScrollView
+        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 50 }}
+        showsVerticalScrollIndicator={false}>
+
+        <View style={[s.headerRow, { marginTop: 16, marginBottom: 16 }]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <TouchableOpacity
+              style={[s.avatar, { backgroundColor: colors.primary }]}
+              onPress={() => navigation.navigate('ProfileTab')}>
+              <Text style={s.avatarTxt}>{initials}</Text>
+            </TouchableOpacity>
+            <View>
+              <Text style={[s.greetTxt, { color: colors.textSecondary }]}>
+                {getGreeting()}
+              </Text>
+              <Text style={[s.nameTxt, { color: colors.text }]}>
+                {displayName} 👋
+              </Text>
+            </View>
           </View>
-          <TouchableOpacity style={[styles.avatar, { backgroundColor: colors.primary, borderRadius: borderRadius.round }]} onPress={() => navigation.navigate('ProfileTab')}>
-            <Text style={[styles.avatarText, { color: '#FFF' }]}>{initials}</Text>
+          <TouchableOpacity
+            style={[
+              s.bellWrap,
+              {
+                backgroundColor: mode === 'dark' ? colors.surface : colors.surfaceHighlight,
+                borderColor: colors.border,
+                borderRadius: borderRadius.md,
+              },
+            ]}>
+            <Bell size={20} color={colors.textSecondary} />
           </TouchableOpacity>
         </View>
 
-        <View style={[styles.statusBadge, { backgroundColor: colors.successMuted, borderColor: colors.successMuted, borderRadius: borderRadius.round, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, marginBottom: spacing.xl }]}>
-          <View style={[styles.statusDot, { backgroundColor: colors.success }]} />
-          <Text style={[styles.statusText, { color: colors.success }]}>Agent online — ready to assist</Text>
+        <View style={[
+          s.statusPill,
+          {
+            backgroundColor: mode === 'dark' ? 'rgba(34,197,94,0.08)' : 'rgba(22,163,74,0.06)',
+            borderColor: mode === 'dark' ? 'rgba(34,197,94,0.25)' : 'rgba(22,163,74,0.2)',
+            borderRadius: borderRadius.xl,
+            paddingHorizontal: 14,
+            paddingVertical: 10,
+            marginBottom: 20,
+          },
+        ]}>
+          <View style={[s.statusDot, { backgroundColor: colors.success }]} />
+          <View>
+            <Text style={[s.statusMain, { color: colors.text }]}>AI Agent Online</Text>
+            <Text style={[s.statusSub, { color: colors.success }]}>Ready to run</Text>
+          </View>
         </View>
 
-        <View style={styles.metricsGrid}>
-          <MetricCard title="New Leads" value="14" trend="+3 today" positive={true} />
-          <MetricCard title="Pending Tasks" value="5" trend="Action needed" positive={false} />
+        <TouchableOpacity
+          style={[s.ctaCard, { borderRadius: borderRadius.xl, overflow: 'hidden', marginBottom: 24 }]}
+          activeOpacity={0.85}
+          onPress={() => navigation.navigate('ChatTab')}>
+          <View style={StyleSheet.absoluteFill}>
+            <Svg width="100%" height="100%" preserveAspectRatio="none">
+              <Defs>
+                <LinearGradient id="ctaBg" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <Stop offset="0%" stopColor="#4B32C3" />
+                  <Stop offset="35%" stopColor="#6D5CFF" />
+                  <Stop offset="65%" stopColor="#885CF6" />
+                  <Stop offset="100%" stopColor="#36CFFF" />
+                </LinearGradient>
+                <RadialGradient id="ctaGlow" cx="70%" cy="30%" r="60%">
+                  <Stop offset="0%" stopColor="#36CFFF" stopOpacity="0.35" />
+                  <Stop offset="100%" stopColor="#36CFFF" stopOpacity="0" />
+                </RadialGradient>
+                <RadialGradient id="ctaGlow2" cx="30%" cy="80%" r="50%">
+                  <Stop offset="0%" stopColor="#2BE4B8" stopOpacity="0.2" />
+                  <Stop offset="100%" stopColor="#2BE4B8" stopOpacity="0" />
+                </RadialGradient>
+              </Defs>
+              <Rect x="0" y="0" width="100%" height="100%" fill="url(#ctaBg)" />
+              <Rect x="0" y="0" width="100%" height="100%" fill="url(#ctaGlow)" />
+              <Rect x="0" y="0" width="100%" height="100%" fill="url(#ctaGlow2)" />
+            </Svg>
+          </View>
+
+          <View style={s.ctaBody}>
+            <View style={{ flex: 1, paddingRight: 12 }}>
+              <Text style={s.ctaTitle}>Run Sales Agent</Text>
+              <Text style={s.ctaSub}>
+                Find new leads, check CRM{'\n'}and create follow-ups
+              </Text>
+            </View>
+            <View style={s.ctaRobot}>
+              <Bot size={26} color="rgba(255,255,255,0.95)" />
+            </View>
+          </View>
+        </TouchableOpacity>
+        <View style={[s.row2, { marginBottom: 10 }]}>
+          <MetricCard
+            title="New Leads"
+            value="24"
+            trendValue="↑ 32%"
+            trendLabel="vs last 7 days"
+            positive
+          />
+          <MetricCard
+            title="Hot Leads"
+            value="8"
+            trendValue="↑ 25%"
+            trendLabel="vs last 7 days"
+            positive
+          />
+        </View>
+        <View style={[s.row2, { marginBottom: 28 }]}>
+          <MetricCard
+            title="Follow-ups Due"
+            value="6"
+            badgeText="Due today"
+            badgeColor={colors.warning}
+          />
+          <MetricCard
+            title="Revenue Potential"
+            value="$128K"
+            trendValue="↑ 18%"
+            trendLabel="This month"
+            positive
+          />
         </View>
 
-        <View style={[styles.section, { gap: spacing.md, marginTop: spacing.xl }]}>
-          <Text style={[styles.sectionTitle, { color: colors.textMuted, marginBottom: spacing.xs }]}>Agent Workflows</Text>
-          
-          <QuickCard 
-            icon={<MessageSquare size={24} color={colors.primary} />} 
-            label="Open Chat" 
-            desc="Talk to your SalesOps AI agent" 
-            onPress={() => navigation.navigate('ChatTab')} 
-          />
-          <QuickCard 
-            icon={<Search size={24} color={colors.primary} />} 
-            label="Discover Leads" 
-            desc="Find new leads via Google Places" 
-            onPress={() => navigation.navigate('Discovery')} 
-          />
-          <QuickCard 
-            icon={<Users size={24} color={colors.primary} />} 
-            label="ERPNext CRM" 
-            desc="Analyze hot leads & opportunities" 
-            onPress={() => navigation.navigate('CRMLeads')} 
-          />
+        <View style={[s.sectionHdr, { marginBottom: 14 }]}>
+          <Text style={[s.sectionTitle, { color: colors.text }]}>AI Sales Playbooks</Text>
+          <TouchableOpacity>
+            <Text style={[s.viewAll, { color: colors.primary }]}>View all</Text>
+          </TouchableOpacity>
         </View>
 
-        <View style={[styles.section, { gap: spacing.md, marginTop: spacing.xl }]}>
-          <Text style={[styles.sectionTitle, { color: colors.textMuted, marginBottom: spacing.xs }]}>Insights & Audits</Text>
-          
-          <QuickCard 
-            icon={<Activity size={24} color={colors.warning} />} 
-            label="Outcome Dashboard" 
-            desc="Before/After workflow metrics" 
-            onPress={() => navigation.navigate('OutcomeDashboard')} 
+        <View style={{ gap: 10 }}>
+          <PlaybookCard
+            icon={<Search size={20} color={colors.primary} />}
+            iconBg={colors.primary}
+            title="Discover Leads"
+            desc="Find prospects via Google Places"
+            rightIcon={<Sparkles size={16} color={colors.primary} />}
+            onPress={() => navigation.navigate('Discovery')}
           />
-          <QuickCard 
-            icon={<Terminal size={24} color={colors.accent} />} 
-            label="Antigravity Trace" 
-            desc="View agent thought process" 
-            onPress={() => navigation.navigate('TraceLogs')} 
+          <PlaybookCard
+            icon={<Zap size={20} color={colors.accent} />}
+            iconBg={colors.accent}
+            title="Qualify & Score"
+            desc="Score and prioritize best prospects"
+            onPress={() => navigation.navigate('CRMLeads')}
+          />
+          <PlaybookCard
+            icon={<Building2 size={20} color={colors.accentGreen} />}
+            iconBg={colors.accentGreen}
+            title="CRM Intelligence"
+            desc="Analyze deals and account health"
+            onPress={() => navigation.navigate('CRMLeads')}
+          />
+          <PlaybookCard
+            icon={<Mail size={20} color={colors.success} />}
+            iconBg={colors.success}
+            title="Outreach Assistant"
+            desc="Craft emails and set follow-ups"
+            onPress={() => navigation.navigate('ChatTab')}
           />
         </View>
-
       </ScrollView>
     </SafeAreaView>
   );
 };
 
-const styles = StyleSheet.create({
-  container: { flex: 1 },
-  topBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  greeting: { fontSize: 14 },
-  name: { fontSize: 24, fontWeight: '700' },
-  avatar: { width: 46, height: 46, justifyContent: 'center', alignItems: 'center', elevation: 5 },
-  avatarText: { fontWeight: '700', fontSize: 16 },
-  statusBadge: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, alignSelf: 'flex-start' },
-  statusDot: { width: 8, height: 8, borderRadius: 4 },
-  statusText: { fontSize: 13, fontWeight: '500' },
-  metricsGrid: { flexDirection: 'row', gap: 16 },
-  metricCard: { flex: 1, borderWidth: 1 },
-  metricTitle: { fontSize: 12, fontWeight: '600', marginBottom: 4 },
-  metricValue: { fontSize: 28, fontWeight: '700', marginBottom: 8 },
-  trendRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  trendText: { fontSize: 12, fontWeight: '500' },
-  section: {},
-  sectionTitle: { fontSize: 12, fontWeight: '600', letterSpacing: 1, textTransform: 'uppercase' },
-  quickCard: { flexDirection: 'row', alignItems: 'center', borderWidth: 1 },
-  cardIcon: { width: 48, height: 48, justifyContent: 'center', alignItems: 'center' },
-  cardText: { flex: 1 },
-  cardLabel: { fontSize: 16, fontWeight: '600' },
-  cardDesc: { fontSize: 13, marginTop: 2 },
+const s = StyleSheet.create({
+  root: { flex: 1 },
+
+  headerRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+  },
+  avatar: {
+    width: 44, height: 44, borderRadius: 22,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  avatarTxt: { color: '#FFF', fontWeight: '700', fontSize: 16 },
+  greetTxt: { fontSize: 13, fontWeight: '400' },
+  nameTxt: { fontSize: 22, fontWeight: '700', letterSpacing: -0.3 },
+  bellWrap: {
+    width: 40, height: 40,
+    justifyContent: 'center', alignItems: 'center',
+    borderWidth: 1,
+  },
+
+  statusPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    alignSelf: 'flex-start', borderWidth: 1,
+  },
+  statusDot: { width: 10, height: 10, borderRadius: 5 },
+  statusMain: { fontSize: 14, fontWeight: '600' },
+  statusSub: { fontSize: 12, fontWeight: '500', marginTop: 1 },
+
+  ctaCard: {
+    height: 140,
+    shadowColor: '#6D5CFF',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.35,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  ctaBody: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 20, paddingTop: 22, flex: 1,
+  },
+  ctaTitle: {
+    color: '#FFF', fontSize: 22, fontWeight: '800',
+    marginBottom: 6, letterSpacing: -0.3,
+  },
+  ctaSub: {
+    color: 'rgba(255,255,255,0.85)', fontSize: 13, lineHeight: 19,
+  },
+  ctaRobot: {
+    width: 52, height: 52, borderRadius: 26,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    justifyContent: 'center', alignItems: 'center',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)',
+  },
+
+  row2: { flexDirection: 'row', gap: 10 },
+  lightShadow: {
+    shadowColor: '#64748B',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  sectionHdr: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+  },
+  sectionTitle: { fontSize: 17, fontWeight: '700' },
+  viewAll: { fontSize: 14, fontWeight: '600' },
+
 });
