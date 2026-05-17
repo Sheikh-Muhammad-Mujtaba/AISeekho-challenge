@@ -480,17 +480,18 @@ async def run_orchestrator_stream(
 ) -> AsyncGenerator[dict, None]:
     """Run the agent orchestration loop with streaming SSE events.
 
-    Yields dict events suitable for SSE:
-      {"type": "token",       "content": "partial text"}
-      {"type": "agent",       "agent": "AgentName"}
-      {"type": "tool",        "tool": "tool_name"}
-      {"type": "tool_output", "content": "..."}
-      {"type": "message",     "content": "full message"}
-      {"type": "done",        "content": "final output"}
-      {"type": "error",       "content": "error msg"}
+    Event contract (no duplicate content):
+      {"type": "run_id",      "run_id": "..."}          — first event
+      {"type": "agent",       "agent": "AgentName"}     — thinking / agent switch
+      {"type": "tool_start",  "tool": "tool_name"}      — tool is being called
+      {"type": "tool_result", "tool": "tool_name",
+                              "content": "preview..."}  — tool finished
+      {"type": "token",       "content": "delta text"}  — streamed text delta
+      {"type": "done"}                                  — stream finished
+      {"type": "error",       "content": "msg"}         — something broke
     """
     token = current_run_id.set(run_id)
-    run_failed = False
+    current_tool_name = "unknown"
     try:
         context = AgentContext(
             run_id=run_id or "",
@@ -505,57 +506,61 @@ async def run_orchestrator_stream(
         logger.info("SSE stream started for run_id=%s", run_id)
 
         async for event in result.stream_events():
-            # ── Token deltas (real-time text output) ─────────────────
+            # ── Token deltas (real-time text) ────────────────────────
             if event.type == "raw_response_event":
                 if isinstance(event.data, ResponseTextDeltaEvent):
                     delta = event.data.delta
                     if delta:
                         yield {"type": "token", "content": delta}
 
-            # ── Agent hand-off ───────────────────────────────────────
+            # ── Agent hand-off (thinking indicator) ──────────────────
             elif event.type == "agent_updated_stream_event":
                 agent_name = event.new_agent.name
                 logger.info("Agent hand-off → %s (run=%s)", agent_name, run_id)
                 yield {"type": "agent", "agent": agent_name}
 
-            # ── Run-item lifecycle events ────────────────────────────
+            # ── Tool lifecycle events ────────────────────────────────
             elif event.type == "run_item_stream_event":
                 item = event.item
+
                 if item.type == "tool_call_item":
-                    tool_name = getattr(
+                    current_tool_name = getattr(
                         item, "name",
-                        getattr(getattr(item, "raw_item", None), "name", "unknown"),
+                        getattr(
+                            getattr(item, "raw_item", None), "name", "unknown"
+                        ),
                     )
-                    logger.info("Tool call: %s (run=%s)", tool_name, run_id)
-                    yield {"type": "tool", "tool": tool_name}
+                    logger.info("Tool call: %s (run=%s)", current_tool_name, run_id)
+                    yield {"type": "tool_start", "tool": current_tool_name}
 
                 elif item.type == "tool_call_output_item":
                     output_preview = str(item.output)[:300]
-                    yield {"type": "tool_output", "content": output_preview}
+                    yield {
+                        "type": "tool_result",
+                        "tool": current_tool_name,
+                        "content": output_preview,
+                    }
 
-                elif item.type == "message_output_item":
-                    text = ItemHelpers.text_message_output(item)
-                    if text:
-                        yield {"type": "message", "content": text}
+                # NOTE: message_output_item is intentionally skipped.
+                # It contains the full accumulated text which has already
+                # been streamed to the client via "token" deltas above.
 
-        # Stream fully consumed — flush all queued tracing writes
+        # Stream fully consumed — flush tracing writes & update status
         await flush_pending_writes()
-
-        final = result.final_output or ""
-        logger.info("SSE stream completed for run_id=%s (output_len=%d)", run_id, len(final))
+        logger.info("SSE stream completed for run_id=%s", run_id)
 
         if run_id:
             await _update_run_status(run_id, "completed")
 
-        yield {"type": "done", "content": final}
+        # Signal completion — no content (client already has it from tokens)
+        yield {"type": "done"}
 
     except Exception as exc:
-        run_failed = True
         logger.error("Streaming error (run=%s): %s", run_id, exc, exc_info=True)
-        # Still flush whatever writes were queued before the error
         await flush_pending_writes()
         if run_id:
             await _update_run_status(run_id, "failed")
         yield {"type": "error", "content": "Something went wrong. Please try again."}
     finally:
         current_run_id.reset(token)
+
