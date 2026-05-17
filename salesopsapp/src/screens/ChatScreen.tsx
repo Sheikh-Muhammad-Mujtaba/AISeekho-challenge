@@ -47,14 +47,6 @@ const QUICK_ACTIONS = [
   'Create follow-ups',
 ];
 
-const WORKFLOW_STEPS: WorkflowStep[] = [
-  { id: '1', label: 'Searching Google Places', status: 'active' },
-  { id: '2', label: 'Filtering & verifying leads', status: 'pending' },
-  { id: '3', label: 'Enriching with company data', status: 'pending' },
-  { id: '4', label: 'Scoring & prioritizing', status: 'pending' },
-  { id: '5', label: 'Saving to ERPNext CRM', status: 'pending' },
-];
-
 export const ChatScreen = () => {
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -78,7 +70,7 @@ export const ChatScreen = () => {
         .join('')
         .substring(0, 2)
         .toUpperCase()
-    : 'AA';
+    : '';
 
   const triggerHaptic = (
     type: 'impactLight' | 'notificationSuccess' | 'notificationError',
@@ -352,14 +344,6 @@ export const ChatScreen = () => {
                 ))}
               </Animated.View>
             )}
-            {messages.some(m => m.showWorkflow) && (
-              <Animated.View entering={FadeInUp.delay(200)}>
-                <WorkflowTimeline
-                  steps={WORKFLOW_STEPS}
-                  title="Agent is running a workflow"
-                />
-              </Animated.View>
-            )}
           </>
         }
       />
@@ -409,11 +393,8 @@ export const ChatScreen = () => {
               value={inputText}
               onChangeText={setInputText}
               multiline
-              maxLength={500}
+              maxLength={1000}
             />
-            <TouchableOpacity style={st.micBtn}>
-              <Mic size={18} color={colors.textMuted} />
-            </TouchableOpacity>
           </View>
           <TouchableOpacity
             style={[

@@ -15,100 +15,6 @@ export interface StreamEvent {
 }
 
 export type StreamCallback = (event: StreamEvent) => void;
-function splitConcatenatedJson(text: string): string[] {
-  const parts: string[] = [];
-  let depth = 0;
-  let start = 0;
-
-  for (let i = 0; i < text.length; i++) {
-    if (text[i] === '{') depth++;
-    else if (text[i] === '}') {
-      depth--;
-      if (depth === 0) {
-        parts.push(text.slice(start, i + 1));
-        start = i + 1;
-      }
-    }
-  }
-
-  return parts.length > 0 ? parts : [text];
-}
-
-function parseJsonEvent(jsonStr: string): StreamEvent | null {
-  try {
-    const parsed = JSON.parse(jsonStr);
-    if (!parsed || typeof parsed !== 'object') return null;
-
-    switch (parsed.type) {
-      case 'run_id':
-        return { type: 'run_id', data: String(parsed.run_id ?? '') };
-      case 'agent':
-        return { type: 'agent', data: String(parsed.agent ?? '') };
-      case 'tool':
-        return { type: 'tool', data: String(parsed.tool ?? '') };
-      case 'token':
-        return { type: 'token', data: String(parsed.content ?? '') };
-      case 'message':
-        return null;
-      case 'done':
-        return { type: 'done', data: String(parsed.content ?? '') };
-      case 'error':
-        return {
-          type: 'error',
-          data: String(
-            parsed.message ?? parsed.content ?? JSON.stringify(parsed),
-          ),
-        };
-      default:
-        if (parsed.content != null) {
-          return { type: 'token', data: String(parsed.content) };
-        }
-        return null;
-    }
-  } catch {
-    return { type: 'token', data: jsonStr };
-  }
-}
-
-function parseSSEChunk(
-  raw: string,
-  bufferRef: { value: string },
-): StreamEvent[] {
-  const events: StreamEvent[] = [];
-  bufferRef.value += raw;
-
-  const eventBlocks = bufferRef.value.split('\n\n');
-  bufferRef.value = eventBlocks.pop() ?? '';
-
-  for (const block of eventBlocks) {
-    const lines = block.split('\n');
-    const dataLines: string[] = [];
-
-    for (const line of lines) {
-      if (line.startsWith('data: ')) {
-        dataLines.push(line.slice(6));
-      }
-    }
-
-    if (dataLines.length === 0) continue;
-
-    const jsonStr = dataLines.join('\n');
-
-    if (jsonStr.trim() === '[DONE]') {
-      events.push({ type: 'done', data: '' });
-      continue;
-    }
-
-    for (const part of splitConcatenatedJson(jsonStr)) {
-      const trimmed = part.trim();
-      if (!trimmed) continue;
-      const evt = parseJsonEvent(trimmed);
-      if (evt) events.push(evt);
-    }
-  }
-
-  return events;
-}
 
 export const agentApi = {
   initializeWorkflow: async (prompt: string, isSimulation: boolean) => {
@@ -137,71 +43,128 @@ export const agentApi = {
     };
   },
 
+  /**
+   * POST /api/chat/stream
+   *
+   * The Vercel Python runtime buffers responses, so the backend returns a
+   * structured JSON payload instead of real-time SSE:
+   *   {
+   *     run_id: string,
+   *     status: 'completed' | 'error',
+   *     steps:  Array<{ type: 'agent' | 'tool_start' | 'tool_result', ... }>,
+   *     message: string
+   *   }
+   *
+   * To preserve the streaming UX in the chat, we replay the steps and stream
+   * the final message token-by-token through the same StreamCallback the UI
+   * already consumes.
+   */
   chatStream: (
     messages: Array<{ role: string; content: string }>,
     onEvent: StreamCallback,
     runId?: string,
   ): (() => void) => {
-    const xhr = new XMLHttpRequest();
-    let lastIndex = 0;
-    const bufferRef = { value: '' };
-    let doneSent = false;
+    let aborted = false;
+    const timers: ReturnType<typeof setTimeout>[] = [];
 
-    xhr.open('POST', `${API_BASE}/chat/stream`);
-    xhr.setRequestHeader('Content-Type', 'application/json');
-    xhr.setRequestHeader('Accept', 'text/event-stream');
-    const token = getAuthToken();
-    if (token) {
-      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-    }
+    const wait = (ms: number) =>
+      new Promise<void>(resolve => {
+        const t = setTimeout(() => resolve(), ms);
+        timers.push(t);
+      });
 
-    xhr.onreadystatechange = () => {
-      if (xhr.readyState >= 3 && xhr.responseText) {
-        const newText = xhr.responseText.slice(lastIndex);
-        lastIndex = xhr.responseText.length;
-        if (__DEV__) console.log('[SSE] raw chunk:', newText);
+    const controller = new AbortController();
 
-        const events = parseSSEChunk(newText, bufferRef);
-        if (__DEV__ && events.length) console.log('[SSE] parsed events:', events);
-        for (const evt of events) {
-          if (evt.type === 'done' || evt.type === 'error') doneSent = true;
-          onEvent(evt);
+    const run = async () => {
+      try {
+        const token = getAuthToken();
+        const res = await fetch(`${API_BASE}/chat/stream`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ messages, run_id: runId }),
+          signal: controller.signal,
+        });
+
+        if (!res.ok) {
+          const errText = await res.text().catch(() => '');
+          throw new Error(`HTTP ${res.status}: ${errText || res.statusText}`);
         }
-      }
 
-      if (xhr.readyState === 4) {
-        if (bufferRef.value.trim()) {
-          const events = parseSSEChunk('\n\n', bufferRef);
-          for (const evt of events) {
-            if (evt.type === 'done' || evt.type === 'error') doneSent = true;
-            onEvent(evt);
+        const data = await res.json();
+        if (__DEV__) console.log('[chatStream] response:', data);
+        if (aborted) return;
+
+        if (data.run_id) {
+          onEvent({ type: 'run_id', data: String(data.run_id) });
+        }
+
+        const steps: Array<Record<string, any>> = Array.isArray(data.steps)
+          ? data.steps
+          : [];
+
+        for (const step of steps) {
+          if (aborted) return;
+
+          switch (step.type) {
+            case 'agent':
+              onEvent({ type: 'agent', data: String(step.agent ?? '') });
+              await wait(250);
+              break;
+            case 'tool_start':
+              onEvent({ type: 'tool', data: String(step.tool ?? '') });
+              await wait(300);
+              break;
+            case 'tool_result':
+              // Surface tool name briefly; final content is delivered via `message`
+              if (step.tool) {
+                onEvent({ type: 'tool', data: String(step.tool) });
+                await wait(150);
+              }
+              break;
+            default:
+              break;
           }
         }
-        if (!doneSent) {
-          if (__DEV__) console.log('[SSE] synthetic done emitted');
-          onEvent({ type: 'done', data: '' });
+
+        const finalMessage: string = String(data.message ?? '');
+        if (finalMessage) {
+          // Stream the message word-by-word for a typewriter effect.
+          const tokens = finalMessage.split(/(\s+)/);
+          for (const tok of tokens) {
+            if (aborted) return;
+            if (!tok) continue;
+            onEvent({ type: 'token', data: tok });
+            await wait(20);
+          }
         }
+
+        if (!aborted) {
+          onEvent({ type: 'done', data: finalMessage });
+        }
+      } catch (err: any) {
+        if (aborted) return;
+        const msg =
+          err?.name === 'AbortError'
+            ? 'Stream aborted.'
+            : err?.message || 'Network error during stream.';
+        if (__DEV__) console.log('[chatStream] error:', msg);
+        onEvent({ type: 'error', data: msg });
       }
     };
 
-    xhr.onerror = () => {
-      if (__DEV__) console.log('[SSE] network error');
-      onEvent({ type: 'error', data: 'Network error during stream.' });
-    };
-
-    xhr.ontimeout = () => {
-      if (__DEV__) console.log('[SSE] timeout');
-      onEvent({ type: 'error', data: 'Stream request timed out.' });
-    };
-
-    xhr.timeout = 120_000;
-
-    xhr.send(JSON.stringify({ messages, run_id: runId }));
+    run();
 
     return () => {
+      aborted = true;
+      timers.forEach(clearTimeout);
       try {
-        xhr.abort();
+        controller.abort();
       } catch (_) {
+        /* noop */
       }
     };
   },

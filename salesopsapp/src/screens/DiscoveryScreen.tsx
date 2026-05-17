@@ -1,47 +1,134 @@
-/**
- * DiscoveryScreen.tsx
- *
- * Shows Lead Discovery & Place Candidates from Google Places API (Mocked).
- */
-
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  View, Text, StyleSheet, FlatList, TouchableOpacity,
+  ActivityIndicator, RefreshControl,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../hooks/useTheme';
-import { MapPin, Search, Star, Filter, ArrowLeft, Shield } from '../constants/icons';
+import { Mail, Phone, ArrowLeft, Users } from '../constants/icons';
 import { useNavigation } from '@react-navigation/native';
+import { discoveryApi, type Lead } from '../services/discoveryApi';
 
-const mockCandidates = [
-  { id: '1', name: 'Laser Clinic Gulberg', address: 'Main Blvd Gulberg, Lahore', rating: 4.8, score: 95, isDuplicate: false, status: 'Hot' },
-  { id: '2', name: 'Aesthetic Care', address: 'MM Alam Rd, Lahore', rating: 4.5, score: 80, isDuplicate: false, status: 'Warm' },
-  { id: '3', name: 'Skin Health Center', address: 'Gulberg III, Lahore', rating: 4.2, score: 0, isDuplicate: true, status: 'Duplicate' },
-];
+const PAGE_SIZE = 20;
+
+function statusColor(
+  status: string,
+  colors: Record<string, string>,
+): { bg: string; border: string; text: string } {
+  switch (status.toLowerCase()) {
+    case 'opportunity':
+      return { bg: colors.primaryMuted, border: colors.primary, text: colors.primary };
+    case 'lead':
+      return { bg: colors.successMuted, border: colors.success, text: colors.success };
+    case 'converted':
+      return { bg: colors.accentMuted ?? colors.successMuted, border: colors.accent, text: colors.accent };
+    default:
+      return { bg: colors.surfaceHighlight, border: colors.border, text: colors.textMuted };
+  }
+}
+
+function formatDate(raw: string): string {
+  try {
+    return new Date(raw).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  } catch {
+    return raw;
+  }
+}
 
 export const DiscoveryScreen = () => {
   const { colors, spacing, borderRadius } = useTheme();
   const navigation = useNavigation();
-  const [loading, setLoading] = useState(false);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [total, setTotal] = useState(0);
 
-  const renderCandidate = ({ item }: { item: typeof mockCandidates[0] }) => (
-    <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: borderRadius.lg, padding: spacing.md, marginBottom: spacing.md }]}>
-      <View style={styles.cardHeader}>
-        <Text style={[styles.name, { color: colors.text, flex: 1 }]}>{item.name}</Text>
-        <View style={[styles.scoreBadge, { backgroundColor: item.isDuplicate ? colors.errorMuted : colors.successMuted, borderColor: item.isDuplicate ? colors.error : colors.success }]}>
-          <Text style={{ color: item.isDuplicate ? colors.error : colors.success, fontSize: 12, fontWeight: '600' }}>{item.status}</Text>
+  const fetchLeads = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
+    setError(null);
+    try {
+      const res = await discoveryApi.getLeads(PAGE_SIZE, 0);
+      setLeads(res.data);
+      setTotal(res.total_returned);
+    } catch (e: any) {
+      setError(e?.message ?? 'Failed to load leads');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchLeads(); }, [fetchLeads]);
+
+  const renderLead = ({ item }: { item: Lead }) => {
+    const sc = statusColor(item.status, colors as unknown as Record<string, string>);
+    return (
+      <View style={[
+        styles.card,
+        {
+          backgroundColor: colors.surface,
+          borderColor: colors.border,
+          borderRadius: borderRadius.lg,
+          padding: spacing.md,
+          marginBottom: spacing.md,
+        },
+      ]}>
+        <View style={styles.cardHeader}>
+          <Text style={[styles.name, { color: colors.text, flex: 1 }]} numberOfLines={1}>
+            {item.lead_name}
+          </Text>
+          <View style={[styles.badge, { backgroundColor: sc.bg, borderColor: sc.border }]}>
+            <Text style={{ color: sc.text, fontSize: 11, fontWeight: '700' }}>{item.status}</Text>
+          </View>
         </View>
+
+        <Text style={[styles.crmId, { color: colors.textMuted }]}>{item.name}</Text>
+
+        {item.email_id ? (
+          <View style={[styles.row, { marginTop: spacing.sm }]}>
+            <Mail size={13} color={colors.textMuted} />
+            <Text style={[styles.detail, { color: colors.textSecondary }]}>{item.email_id}</Text>
+          </View>
+        ) : null}
+
+        {item.mobile_no ? (
+          <View style={[styles.row, { marginTop: 4 }]}>
+            <Phone size={13} color={colors.textMuted} />
+            <Text style={[styles.detail, { color: colors.textSecondary }]}>{item.mobile_no}</Text>
+          </View>
+        ) : null}
+
+        <Text style={[styles.date, { color: colors.textMuted, marginTop: spacing.sm }]}>
+          Added {formatDate(item.creation)}
+        </Text>
       </View>
-      
-      <View style={[styles.row, { marginTop: spacing.sm }]}>
-        <MapPin size={14} color={colors.textMuted} />
-        <Text style={[styles.address, { color: colors.textSecondary }]}>{item.address}</Text>
+    );
+  };
+
+  const ListHeader = () => (
+    <>
+      <View style={[
+        styles.infoBar,
+        {
+          backgroundColor: colors.primaryMuted,
+          borderRadius: borderRadius.md,
+          padding: spacing.md,
+          marginBottom: spacing.lg,
+        },
+      ]}>
+        <View style={styles.row}>
+          <Users size={16} color={colors.primary} />
+          <Text style={[styles.infoTitle, { color: colors.primary }]}>
+            CRM Leads  ·  {total} total
+          </Text>
+        </View>
+        <Text style={[styles.infoSub, { color: colors.textSecondary, marginTop: 4 }]}>
+          Pulled from ERPNext CRM
+        </Text>
       </View>
-      
-      <View style={[styles.row, { marginTop: spacing.xs }]}>
-        <Star size={14} color={colors.warning} />
-        <Text style={[styles.rating, { color: colors.textSecondary }]}>{item.rating} Rating</Text>
-        <Text style={[styles.score, { color: colors.primary, marginLeft: spacing.md }]}>Agent Score: {item.score}</Text>
-      </View>
-    </View>
+    </>
   );
 
   return (
@@ -51,29 +138,43 @@ export const DiscoveryScreen = () => {
           <ArrowLeft size={24} color={colors.text} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.text }]}>Lead Discovery</Text>
-        <TouchableOpacity>
-          <Filter size={24} color={colors.text} />
-        </TouchableOpacity>
+        <View style={{ width: 32 }} />
       </View>
 
-      <View style={[styles.searchInfo, { backgroundColor: colors.primaryMuted, marginHorizontal: spacing.xl, padding: spacing.md, borderRadius: borderRadius.md, marginBottom: spacing.lg }]}>
-        <View style={styles.row}>
-          <Search size={18} color={colors.primary} />
-          <Text style={[styles.searchQuery, { color: colors.primary }]}>"Clinics in Gulberg Lahore"</Text>
+      {loading ? (
+        <View style={styles.center}>
+          <ActivityIndicator color={colors.primary} size="large" />
+          <Text style={[styles.loadingTxt, { color: colors.textMuted }]}>Loading leads…</Text>
         </View>
-        <View style={[styles.row, { marginTop: 8 }]}>
-          <Shield size={14} color={colors.success} />
-          <Text style={[styles.searchSub, { color: colors.success }]}>Agent deduped against ERPNext</Text>
+      ) : error ? (
+        <View style={styles.center}>
+          <Text style={[styles.errorTxt, { color: colors.textSecondary }]}>{error}</Text>
+          <TouchableOpacity onPress={() => fetchLeads()} style={[styles.retryBtn, { borderColor: colors.primary, borderRadius: borderRadius.md }]}>
+            <Text style={[styles.retryTxt, { color: colors.primary }]}>Retry</Text>
+          </TouchableOpacity>
         </View>
-      </View>
-
-      <FlatList
-        data={mockCandidates}
-        keyExtractor={item => item.id}
-        renderItem={renderCandidate}
-        contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.xl }}
-        showsVerticalScrollIndicator={false}
-      />
+      ) : (
+        <FlatList
+          data={leads}
+          keyExtractor={item => item.name}
+          renderItem={renderLead}
+          ListHeaderComponent={<ListHeader />}
+          ListEmptyComponent={
+            <View style={styles.center}>
+              <Text style={[styles.emptyTxt, { color: colors.textMuted }]}>No leads found.</Text>
+            </View>
+          }
+          contentContainerStyle={{ paddingHorizontal: spacing.xl, paddingBottom: spacing.xl }}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => fetchLeads(true)}
+              tintColor={colors.primary}
+            />
+          }
+        />
+      )}
     </SafeAreaView>
   );
 };
@@ -83,15 +184,21 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   backBtn: { padding: 4 },
   headerTitle: { fontSize: 20, fontWeight: '700' },
-  searchInfo: { borderWidth: 1, borderColor: 'rgba(99, 102, 241, 0.2)' },
+  infoBar: { borderWidth: 1, borderColor: 'rgba(99,102,241,0.2)' },
+  infoTitle: { fontSize: 15, fontWeight: '700' },
+  infoSub: { fontSize: 13 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  searchQuery: { fontSize: 15, fontWeight: '600' },
-  searchSub: { fontSize: 13, fontWeight: '500' },
   card: { borderWidth: 1 },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   name: { fontSize: 16, fontWeight: '700' },
-  scoreBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, borderWidth: 1 },
-  address: { fontSize: 14 },
-  rating: { fontSize: 14, fontWeight: '500' },
-  score: { fontSize: 14, fontWeight: '600' },
+  crmId: { fontSize: 12, marginTop: 2 },
+  badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, borderWidth: 1 },
+  detail: { fontSize: 13 },
+  date: { fontSize: 12 },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 40, gap: 12 },
+  loadingTxt: { fontSize: 14, marginTop: 8 },
+  errorTxt: { fontSize: 14, textAlign: 'center', paddingHorizontal: 24 },
+  retryBtn: { borderWidth: 1, paddingHorizontal: 20, paddingVertical: 8, marginTop: 4 },
+  retryTxt: { fontSize: 14, fontWeight: '600' },
+  emptyTxt: { fontSize: 15 },
 });

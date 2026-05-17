@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, ScrollView,
+  View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, {
@@ -18,6 +18,8 @@ import type { AppStackParamList } from '../navigation/index';
 import { CompositeScreenProps } from '@react-navigation/native';
 import { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { dashboardApi, type DashboardStats } from '../services/dashboardApi';
+import { RecentActivity } from '../components/RecentActivity';
 
 type Props = CompositeScreenProps<
   BottomTabScreenProps<BottomTabParamList, 'HomeTab'>,
@@ -27,8 +29,12 @@ type Props = CompositeScreenProps<
 export const HomeScreen = ({ navigation }: Props) => {
   const user = useAppSelector((st) => st.auth.user);
   const { colors, spacing, borderRadius, mode } = useTheme();
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const displayName = user?.name ?? user?.email?.split('@')[0] ?? 'Amad Asif';
+  const displayName = user?.name ?? user?.email?.split('@')[0] ?? 'User';
   const initials = displayName.split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2);
 
   const getGreeting = () => {
@@ -38,11 +44,38 @@ export const HomeScreen = ({ navigation }: Props) => {
     return 'Good evening,';
   };
 
+  const fetchStats = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
+    setError(null);
+    try {
+      const data = await dashboardApi.getStats();
+      setStats(data);
+    } catch (e: any) {
+      setError(e?.message ?? 'Failed to load dashboard');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchStats(); }, [fetchStats]);
+
+  const p = stats?.pipeline;
+  const u = stats?.usage;
+
   return (
     <SafeAreaView style={[s.root, { backgroundColor: colors.background }]} edges={['top']}>
       <ScrollView
         contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 50 }}
-        showsVerticalScrollIndicator={false}>
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => fetchStats(true)}
+            tintColor={colors.primary}
+          />
+        }>
 
         <View style={[s.headerRow, { marginTop: 16, marginBottom: 16 }]}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
@@ -124,43 +157,66 @@ export const HomeScreen = ({ navigation }: Props) => {
             </View>
           </View>
         </TouchableOpacity>
-        <View style={[s.row2, { marginBottom: 10 }]}>
-          <MetricCard
-            title="New Leads"
-            value="24"
-            trendValue="↑ 32%"
-            trendLabel="vs last 7 days"
-            positive
-          />
-          <MetricCard
-            title="Hot Leads"
-            value="8"
-            trendValue="↑ 25%"
-            trendLabel="vs last 7 days"
-            positive
-          />
-        </View>
-        <View style={[s.row2, { marginBottom: 28 }]}>
-          <MetricCard
-            title="Follow-ups Due"
-            value="6"
-            badgeText="Due today"
-            badgeColor={colors.warning}
-          />
-          <MetricCard
-            title="Revenue Potential"
-            value="$128K"
-            trendValue="↑ 18%"
-            trendLabel="This month"
-            positive
-          />
-        </View>
-
-        <View style={[s.sectionHdr, { marginBottom: 14 }]}>
-          <Text style={[s.sectionTitle, { color: colors.text }]}>AI Sales Playbooks</Text>
-          <TouchableOpacity>
-            <Text style={[s.viewAll, { color: colors.primary }]}>View all</Text>
+        {loading && !stats ? (
+          <View style={s.loadingRow}>
+            <ActivityIndicator color={colors.primary} />
+            <Text style={[s.loadingTxt, { color: colors.textMuted }]}>Loading stats…</Text>
+          </View>
+        ) : error ? (
+          <TouchableOpacity
+            style={[s.errorBox, { backgroundColor: colors.surfaceHighlight, borderColor: colors.border }]}
+            onPress={() => fetchStats()}>
+            <Text style={[s.errorTxt, { color: colors.error ?? colors.textSecondary }]}>{error}</Text>
+            <Text style={[s.errorRetry, { color: colors.primary }]}>Tap to retry</Text>
           </TouchableOpacity>
+        ) : (
+          <>
+            <View style={[s.row2, { marginBottom: 10 }]}>
+              <MetricCard
+                title="Total Leads"
+                value={String(p?.total_leads ?? 0)}
+                trendValue={`${(p?.opportunity ?? 0)} Opportunity`}
+                trendLabel="in pipeline"
+                positive={(p?.opportunity ?? 0) > 0}
+              />
+              <MetricCard
+                title="Open Leads"
+                value={String(p?.open ?? 0)}
+                trendValue={`${(p?.converted ?? 0)} Converted`}
+                trendLabel="all time"
+                positive={(p?.converted ?? 0) > 0}
+              />
+            </View>
+            <View style={[s.row2, { marginBottom: 28 }]}>
+              <MetricCard
+                title="Agent Runs"
+                value={String(u?.total_runs ?? 0)}
+                trendValue={`${u?.completed_runs ?? 0} completed`}
+                trendLabel={`${u?.failed_runs ?? 0} failed`}
+                positive={(u?.failed_runs ?? 0) === 0}
+              />
+              <MetricCard
+                title="Tool Calls"
+                value={String(u?.total_tool_calls ?? 0)}
+                trendValue={`$${(u?.total_cost_usd ?? 0).toFixed(4)}`}
+                trendLabel="total cost"
+                positive
+              />
+            </View>
+          </>
+        )}
+
+        {stats?.recent_activity?.length ? (
+          <>
+            <View style={[s.sectionHdr, { marginBottom: 12, marginTop: 4 }]}>
+              <Text style={[s.sectionTitle, { color: colors.text }]}>Recent Activity</Text>
+            </View>
+            <RecentActivity items={stats.recent_activity} />
+          </>
+        ) : null}
+
+        <View style={[s.sectionHdr, { marginBottom: 14, marginTop: 24 }]}>
+          <Text style={[s.sectionTitle, { color: colors.text }]}>AI Sales Playbooks</Text>
         </View>
 
         <View style={{ gap: 10 }}>
@@ -175,15 +231,8 @@ export const HomeScreen = ({ navigation }: Props) => {
           <PlaybookCard
             icon={<Zap size={20} color={colors.accent} />}
             iconBg={colors.accent}
-            title="Qualify & Score"
+            title="Qualify"
             desc="Score and prioritize best prospects"
-            onPress={() => navigation.navigate('CRMLeads')}
-          />
-          <PlaybookCard
-            icon={<Building2 size={20} color={colors.accentGreen} />}
-            iconBg={colors.accentGreen}
-            title="CRM Intelligence"
-            desc="Analyze deals and account health"
             onPress={() => navigation.navigate('CRMLeads')}
           />
           <PlaybookCard
@@ -266,4 +315,15 @@ const s = StyleSheet.create({
   sectionTitle: { fontSize: 17, fontWeight: '700' },
   viewAll: { fontSize: 14, fontWeight: '600' },
 
+  loadingRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingVertical: 24, justifyContent: 'center',
+  },
+  loadingTxt: { fontSize: 14 },
+  errorBox: {
+    borderWidth: 1, borderRadius: 12,
+    padding: 16, marginBottom: 24, alignItems: 'center', gap: 6,
+  },
+  errorTxt: { fontSize: 14, textAlign: 'center' },
+  errorRetry: { fontSize: 13, fontWeight: '600' },
 });
