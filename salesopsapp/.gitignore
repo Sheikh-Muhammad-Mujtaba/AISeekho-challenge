@@ -78,4 +78,5 @@ yarn-error.log
 .env*
 !.env.example
 
-ios/salesopsapp/GoogleService-Info.plist
+ios/GoogleService-Info.plist
+android/app/google-services.json

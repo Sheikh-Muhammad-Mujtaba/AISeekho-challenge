@@ -72,6 +72,7 @@ export const BottomTabs = () => {
         options={{
           tabBarLabel: 'Agent',
           tabBarIcon: ({ color, size }) => <MessageSquare color={color} size={size} />,
+          tabBarHideOnKeyboard: true,
         }}
       />
       <Tab.Screen

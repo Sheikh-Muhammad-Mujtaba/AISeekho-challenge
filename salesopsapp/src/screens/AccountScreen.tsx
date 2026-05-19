@@ -7,7 +7,7 @@ import {
   Alert,
   ActivityIndicator,
   ScrollView,
-  Switch,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
@@ -30,6 +30,7 @@ import {
 } from '../constants/icons';
 import { useNavigation } from '@react-navigation/native';
 import { calendarApi } from '../services/calendarApi';
+import { ToggleSwitch } from '../components/ToggleSwitch';
 import type { CalendarStatus } from '../services/calendarApi';
 import { config } from '../config';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
@@ -124,25 +125,61 @@ export const AccountScreen = () => {
     try {
       setIsCalendarLoading(true);
 
-      if (!config.GOOGLE_WEB_CLIENT_ID) {
-        Alert.alert(
-          'Configuration Error',
-          'GOOGLE_WEB_CLIENT_ID is missing from the app config. Add it to .env and rebuild.',
-        );
-        return;
-      }
       if (!GoogleSignin || typeof GoogleSignin.configure !== 'function') {
         Alert.alert(
           'Native Module Missing',
-          'Google Sign-In native module is not linked. Stop Metro, run `pod install` in /ios, then rebuild the app with `npm run ios` (or `npm run android`).',
+          'Google Sign-In native module is not linked.\n\nRun:\n  cd ios && pod install\nThen rebuild with: npm run ios',
         );
         return;
       }
-      GoogleSignin.configure({
+
+      let webClientId = config.GOOGLE_WEB_CLIENT_ID;
+      let iosClientId: string | undefined = config.GOOGLE_IOS_CLIENT_ID || undefined;
+      let scopes = [
+        'https://www.googleapis.com/auth/calendar.readonly',
+        'https://www.googleapis.com/auth/calendar.events',
+      ];
+
+      try {
+        const calendarConfig = await calendarApi.getCalendarConfig();
+        const platformConfig =
+          Platform.OS === 'ios' ? calendarConfig.ios : calendarConfig.android;
+        if (platformConfig.web_client_id) {
+          webClientId = platformConfig.web_client_id;
+        }
+        if (calendarConfig.scopes?.length) {
+          scopes = calendarConfig.scopes;
+        }
+        if (Platform.OS === 'ios') {
+          const iosCfg = calendarConfig.ios;
+          if (iosCfg.ios_client_id) {
+            iosClientId = iosCfg.ios_client_id;
+          }
+        }
+      } catch {
+        // Fall back to local config values if backend config fetch fails
+      }
+
+      if (!webClientId) {
+        Alert.alert(
+          'Configuration Error',
+          'Google Web Client ID is missing. Add GOOGLE_WEB_CLIENT_ID to .env and rebuild.',
+        );
+        return;
+      }
+
+      const signInConfig: Parameters<typeof GoogleSignin.configure>[0] = {
         offlineAccess: true,
-        scopes: ['https://www.googleapis.com/auth/calendar.readonly'],
-        webClientId: config.GOOGLE_WEB_CLIENT_ID,
-      });
+        forceCodeForRefreshToken: true,
+        scopes,
+        webClientId,
+      };
+
+      if (Platform.OS === 'ios' && iosClientId) {
+        (signInConfig as any).iosClientId = iosClientId;
+      }
+
+      GoogleSignin.configure(signInConfig);
 
       const userInfo = await GoogleSignin.signIn();
       const serverAuthCode = userInfo?.data?.serverAuthCode;
@@ -167,7 +204,6 @@ export const AccountScreen = () => {
         Alert.alert('Error', 'Failed to sync calendar. Please try again.');
       }
     } catch (error: any) {
-      // Check for user cancellation
       if (error?.code !== 'SIGN_IN_CANCELLED') {
         Alert.alert(
           'Error',
@@ -434,11 +470,11 @@ export const AccountScreen = () => {
               label="Dark Mode"
               colors={colors}
               rightElement={
-                <Switch
+                <ToggleSwitch
                   value={mode === 'dark'}
                   onValueChange={handleThemeToggle}
-                  trackColor={{ false: colors.border, true: colors.primary }}
-                  thumbColor="#FFF"
+                  activeColor={colors.primary}
+                  inactiveColor={colors.border}
                 />
               }
             />
@@ -450,20 +486,14 @@ export const AccountScreen = () => {
             />
             <SettingRow
               icon={Shield}
-              label="Security"
+              label="Logs"
               colors={colors}
-              onPress={() => {}}
-            />
-            <SettingRow
-              icon={Settings}
-              label="App Settings"
-              colors={colors}
-              onPress={() => {}}
+              onPress={() => navigation.navigate('Logs')}
             />
           </View>
         </View>
 
-        <View style={{ paddingHorizontal: spacing.xl, marginTop: spacing.xxl }}>
+        <View style={{ paddingHorizontal: spacing.xl, marginTop: spacing.md }}>
           <TouchableOpacity
             style={[
               styles.logoutButton,

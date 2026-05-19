@@ -17,12 +17,12 @@ import { LoginScreen } from '../screens/LoginScreen';
 import { RegisterScreen } from '../screens/RegisterScreen';
 import { BottomTabs } from './BottomTabs';
 
-// Deep screens (Accessible from Home/Profile without bottom tab bar)
 import { DiscoveryScreen } from '../screens/DiscoveryScreen';
 import { CRMLeadsScreen } from '../screens/CRMLeadsScreen';
 import { TraceLogsScreen } from '../screens/TraceLogsScreen';
 import { OutcomeDashboardScreen } from '../screens/OutcomeDashboardScreen';
 import { SimulationConsoleScreen } from '../screens/SimulationConsoleScreen';
+import { LogsScreen } from '../screens/LogsScreen';
 
 export type AuthStackParamList = {
   Login: undefined;
@@ -36,6 +36,7 @@ export type AppStackParamList = {
   TraceLogs: { runId: string } | undefined;
   OutcomeDashboard: { runId: string } | undefined;
   SimulationConsole: undefined;
+  Logs: undefined;
 };
 
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
@@ -69,6 +70,7 @@ const AppNavigator = () => {
       <AppStack.Screen name="TraceLogs" component={TraceLogsScreen} />
       <AppStack.Screen name="OutcomeDashboard" component={OutcomeDashboardScreen} />
       <AppStack.Screen name="SimulationConsole" component={SimulationConsoleScreen} />
+      <AppStack.Screen name="Logs" component={LogsScreen} />
     </AppStack.Navigator>
   );
 };
@@ -78,7 +80,6 @@ export const RootNavigator = () => {
   const { token, isLoading } = useAppSelector((state) => state.auth);
   const { colors } = useTheme();
 
-  // Restore session from Keychain on mount
   useEffect(() => {
     dispatch(restoreSession());
   }, [dispatch]);

@@ -269,7 +269,7 @@ const s = StyleSheet.create({
 
   statusPill: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
-    alignSelf: 'flex-start', borderWidth: 1, paddingBottom: 15,
+    alignSelf: 'flex-start', paddingBottom: 15,
   },
   statusDot: { width: 10, height: 10, borderRadius: 5 },
   statusMain: { fontSize: 14, fontWeight: '600' },
