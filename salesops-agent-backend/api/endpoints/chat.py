@@ -144,6 +144,12 @@ def _extract_last_user_message(request: ChatRequest) -> str | None:
     return None
 
 
+def _has_prior_context(request: ChatRequest) -> bool:
+    """Return True if there are multiple user messages in the history."""
+    user_msg_count = sum(1 for m in request.messages if m.role == "user")
+    return user_msg_count > 1
+
+
 async def _save_message(
     db: AsyncSession,
     run_id: str,
@@ -179,8 +185,9 @@ async def chat_with_agent(
     """Standard request/response chat endpoint."""
     try:
         # Guard: block trivial/greeting messages before hitting the LLM
+        # Only apply the guard if this is the very first user message.
         user_text = _extract_last_user_message(request)
-        if user_text and _is_trivial_message(user_text):
+        if user_text and not _has_prior_context(request) and _is_trivial_message(user_text):
             return ChatResponse(message=_TRIVIAL_RESPONSE, run_id=request.run_id)
 
         run_id = await _resolve_run_id(request.run_id, current_user.id, db)
@@ -239,8 +246,9 @@ async def chat_stream(
     """
     try:
         # Guard: block trivial/greeting messages before hitting the LLM
+        # Only apply the guard if this is the very first user message.
         user_text = _extract_last_user_message(request)
-        if user_text and _is_trivial_message(user_text):
+        if user_text and not _has_prior_context(request) and _is_trivial_message(user_text):
             return {
                 "run_id": request.run_id,
                 "status": "completed",
