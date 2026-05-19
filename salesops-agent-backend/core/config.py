@@ -17,8 +17,11 @@ class Settings(BaseSettings):
 
     # ── Google ───────────────────────────────────────────────────────────
     GOOGLE_PLACES_API_KEY: str = ""
+    # Web client ID/secret — used for backend token exchange (Android + iOS)
     GOOGLE_CALENDAR_CLIENT_ID: str = ""
     GOOGLE_CALENDAR_CLIENT_SECRET: str = ""
+    # iOS-specific native client ID (created in Google Cloud Console → iOS app type)
+    GOOGLE_CALENDAR_IOS_CLIENT_ID: str = ""
     GOOGLE_CALENDAR_REFRESH_TOKEN: str = ""
 
     # ── Gemini (tiered models via OpenAI-compatible endpoint) ────────────
