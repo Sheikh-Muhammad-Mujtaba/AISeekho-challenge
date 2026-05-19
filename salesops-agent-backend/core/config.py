@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     GOOGLE_CALENDAR_IOS_CLIENT_ID: str = ""
     GOOGLE_CALENDAR_REFRESH_TOKEN: str = ""
 
+    # ── Gmail SMTP ───────────────────────────────────────────────────────
+    GMAIL_USER: str = ""
+    GMAIL_APP_PASSWORD: str = ""
+    GMAIL_SMTP_HOST: str = "smtp.gmail.com"
+    GMAIL_SMTP_PORT: int = 587
+
     # ── Gemini (tiered models via OpenAI-compatible endpoint) ────────────
     GEMINI_API_KEY: str = ""
     GEMINI_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
