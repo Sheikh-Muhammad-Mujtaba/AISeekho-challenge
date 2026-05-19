@@ -9,7 +9,7 @@ import { Mail, Phone, ArrowLeft, Users } from '../constants/icons';
 import { useNavigation } from '@react-navigation/native';
 import { discoveryApi, type Lead } from '../services/discoveryApi';
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 10;
 
 function statusColor(
   status: string,
@@ -41,6 +41,9 @@ export const DiscoveryScreen = () => {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [offset, setOffset] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
 
@@ -52,6 +55,8 @@ export const DiscoveryScreen = () => {
       const res = await discoveryApi.getLeads(PAGE_SIZE, 0);
       setLeads(res.data);
       setTotal(res.total_returned);
+      setOffset(PAGE_SIZE);
+      setHasMore(res.data.length === PAGE_SIZE);
     } catch (e: any) {
       setError(e?.message ?? 'Failed to load leads');
     } finally {
@@ -59,6 +64,22 @@ export const DiscoveryScreen = () => {
       setRefreshing(false);
     }
   }, []);
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore) {
+      return;
+    }
+    try {
+      setLoadingMore(true);
+      const res = await discoveryApi.getLeads(PAGE_SIZE, offset);
+      setLeads(prev => [...prev, ...res.data]);
+      setOffset(prev => prev + PAGE_SIZE);
+      setHasMore(res.data.length === PAGE_SIZE);
+    } catch {
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, hasMore, offset]);
 
   useEffect(() => { fetchLeads(); }, [fetchLeads]);
 
@@ -70,7 +91,7 @@ export const DiscoveryScreen = () => {
         {
           backgroundColor: colors.surface,
           borderColor: colors.border,
-          borderRadius: borderRadius.lg,
+          borderRadius: borderRadius.sm,
           padding: spacing.md,
           marginBottom: spacing.md,
         },
@@ -133,7 +154,7 @@ export const DiscoveryScreen = () => {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
-      <View style={[styles.header, { paddingHorizontal: spacing.xl, paddingVertical: spacing.md }]}>
+      <View style={[styles.header, { paddingHorizontal: spacing.lg, paddingVertical: spacing.md }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <ArrowLeft size={24} color={colors.text} />
         </TouchableOpacity>
@@ -173,6 +194,15 @@ export const DiscoveryScreen = () => {
               tintColor={colors.primary}
             />
           }
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.3}
+          ListFooterComponent={
+            loadingMore ? (
+              <View style={styles.footer}>
+                <ActivityIndicator size="small" color={colors.primary} />
+              </View>
+            ) : null
+          }
         />
       )}
     </SafeAreaView>
@@ -201,4 +231,5 @@ const styles = StyleSheet.create({
   retryBtn: { borderWidth: 1, paddingHorizontal: 20, paddingVertical: 8, marginTop: 4 },
   retryTxt: { fontSize: 14, fontWeight: '600' },
   emptyTxt: { fontSize: 15 },
+  footer: { paddingVertical: 16, alignItems: 'center' },
 });

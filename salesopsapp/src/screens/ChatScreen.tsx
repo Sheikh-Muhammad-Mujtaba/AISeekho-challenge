@@ -10,6 +10,7 @@ import {
   Platform,
   ActivityIndicator,
 } from 'react-native';
+import Markdown from 'react-native-markdown-display';
 import Animated, {
   FadeInUp,
   FadeInDown,
@@ -262,11 +263,49 @@ export const ChatScreen = () => {
           )}
 
           {item.content ? (
-            <Text
-              style={[st.msgText, { color: isUser ? '#FFF' : colors.text }]}
-            >
-              {item.content}
-            </Text>
+            isUser ? (
+              <Text style={[st.msgText, { color: '#FFF' }]}>
+                {item.content}
+              </Text>
+            ) : (
+              <Markdown
+                style={{
+                  body: { color: colors.text, fontSize: 15, lineHeight: 22 },
+                  strong: { fontWeight: '700' },
+                  em: { fontStyle: 'italic' },
+                  bullet_list: { marginLeft: 4 },
+                  ordered_list: { marginLeft: 4 },
+                  list_item: { marginTop: 2, marginBottom: 2 },
+                  link: { color: colors.primary },
+                  code_inline: {
+                    backgroundColor:
+                      mode === 'dark' ? colors.surfaceHighlight : '#e8e8e8',
+                    borderRadius: 4,
+                    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+                    fontSize: 13,
+                  },
+                  fence: {
+                    backgroundColor:
+                      mode === 'dark' ? colors.surfaceHighlight : '#e8e8e8',
+                    borderRadius: 6,
+                    padding: 10,
+                    marginTop: 6,
+                    marginBottom: 6,
+                    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+                    fontSize: 13,
+                  },
+                  blockquote: {
+                    backgroundColor: colors.primaryMuted,
+                    borderLeftColor: colors.primary,
+                    borderLeftWidth: 3,
+                    paddingLeft: 8,
+                    marginLeft: 0,
+                  },
+                }}
+              >
+                {item.content}
+              </Markdown>
+            )
           ) : item.isStreaming ? (
             <View
               style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
@@ -318,53 +357,59 @@ export const ChatScreen = () => {
         </TouchableOpacity>
       </View>
 
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        keyExtractor={item => item.id}
-        renderItem={renderMessage}
-        contentContainerStyle={[
-          st.listContent,
-          { padding: spacing.md, gap: spacing.md },
-        ]}
-        onContentSizeChange={() =>
-          flatListRef.current?.scrollToEnd({ animated: true })
-        }
-        showsVerticalScrollIndicator={false}
-        ListFooterComponent={
-          <>
-            {showChips && (
-              <Animated.View entering={FadeInUp.delay(300)} style={st.chipsRow}>
-                {QUICK_ACTIONS.map(a => (
-                  <QuickActionChip
-                    key={a}
-                    label={a}
-                    onPress={() => sendMessage(a)}
-                  />
-                ))}
-              </Animated.View>
-            )}
-          </>
-        }
-      />
-
-      {isTyping &&
-        !messages.some(m => m.isStreaming && (m.activeAgent || m.content)) && (
-          <Animated.View
-            entering={FadeInDown}
-            style={[st.typingRow, { paddingHorizontal: spacing.md }]}
-          >
-            <ActivityIndicator size="small" color={colors.primary} />
-            <Text style={[st.typingText, { color: colors.textMuted }]}>
-              Agent is thinking...
-            </Text>
-          </Animated.View>
-        )}
-
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+        style={st.flex}
+        behavior={'padding'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 25}
       >
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          keyExtractor={item => item.id}
+          renderItem={renderMessage}
+          contentContainerStyle={[
+            st.listContent,
+            { padding: spacing.md, gap: spacing.md },
+          ]}
+          onContentSizeChange={() =>
+            flatListRef.current?.scrollToEnd({ animated: true })
+          }
+          showsVerticalScrollIndicator={false}
+          ListFooterComponent={
+            <>
+              {showChips && (
+                <Animated.View
+                  entering={FadeInUp.delay(300)}
+                  style={st.chipsRow}
+                >
+                  {QUICK_ACTIONS.map(a => (
+                    <QuickActionChip
+                      key={a}
+                      label={a}
+                      onPress={() => sendMessage(a)}
+                    />
+                  ))}
+                </Animated.View>
+              )}
+            </>
+          }
+        />
+
+        {isTyping &&
+          !messages.some(
+            m => m.isStreaming && (m.activeAgent || m.content),
+          ) && (
+            <Animated.View
+              entering={FadeInDown}
+              style={[st.typingRow, { paddingHorizontal: spacing.md }]}
+            >
+              <ActivityIndicator size="small" color={colors.primary} />
+              <Text style={[st.typingText, { color: colors.textMuted }]}>
+                Agent is thinking...
+              </Text>
+            </Animated.View>
+          )}
+
         <View
           style={[
             st.composer,
@@ -372,7 +417,6 @@ export const ChatScreen = () => {
               backgroundColor: mode === 'dark' ? colors.surface : colors.card,
               borderColor: colors.border,
               padding: spacing.md,
-              paddingBottom: Platform.OS === 'ios' ? spacing.xl : spacing.md,
             },
           ]}
         >
@@ -401,9 +445,7 @@ export const ChatScreen = () => {
               st.sendBtn,
               {
                 backgroundColor: !inputText.trim()
-                  ? mode === 'dark'
-                    ? colors.surfaceHighlight
-                    : colors.surfaceHighlight
+                  ? colors.surfaceHighlight
                   : colors.primary,
               },
             ]}
@@ -423,6 +465,7 @@ export const ChatScreen = () => {
 
 const st = StyleSheet.create({
   root: { flex: 1 },
+  flex: { flex: 1 },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',

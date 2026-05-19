@@ -79,6 +79,11 @@ android {
     compileSdk rootProject.ext.compileSdkVersion
 
     namespace "com.salesopsapp"
+    externalNativeBuild {
+        cmake {
+            version "3.28.0+"
+        }
+    }
     defaultConfig {
         applicationId "com.salesopsapp"
         minSdkVersion rootProject.ext.minSdkVersion

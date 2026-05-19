@@ -1,5 +1,8 @@
 #!/bin/sh
 
+# Fix for Node/NVM on macOS when running from IDE
+export PATH=$PATH:/Users/ambussiness/.nvm/versions/node/v22.14.0/bin
+
 #
 # Copyright © 2015 the original authors.
 #
