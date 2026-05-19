@@ -82,3 +82,9 @@ ios/GoogleService-Info.plist
 android/app/google-services.json
 ios/salesopsapp/GoogleService-Info.plist
 salesopsapp/android/app/google-services.json
+
+# APK / AAB build outputs
+android/app/build/outputs/apk/
+android/app/build/outputs/bundle/
+*.apk
+*.aab
