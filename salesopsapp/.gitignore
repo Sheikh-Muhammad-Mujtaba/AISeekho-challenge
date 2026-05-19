@@ -80,3 +80,5 @@ yarn-error.log
 
 ios/GoogleService-Info.plist
 android/app/google-services.json
+ios/salesopsapp/GoogleService-Info.plist
+salesopsapp/android/app/google-services.json
