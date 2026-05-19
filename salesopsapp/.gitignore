@@ -88,3 +88,4 @@ android/app/build/outputs/apk/
 android/app/build/outputs/bundle/
 *.apk
 *.aab
+*salesopapp.jks
