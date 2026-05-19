@@ -6,6 +6,7 @@ They are meant to be linked from app stores, OAuth consent screens, and footers.
 
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
+from core.config import settings
 
 router = APIRouter()
 
@@ -112,10 +113,195 @@ _COMMON_STYLES = """\
 </style>
 """
 
-_APP_NAME = "SalesOps Agent"
-_COMPANY = "SalesOps"
+_APP_NAME = "Salesops"
+_COMPANY = "Salesops"
 _CONTACT_EMAIL = "support@salesops.ai"
 _EFFECTIVE_DATE = "19-May-2026"
+
+
+# ── Home Page ────────────────────────────────────────────────────────────
+
+@router.get("/", response_class=HTMLResponse)
+async def home_page():
+    """Public home page explaining the app purpose and linking to policies."""
+    verification_meta = ""
+    if settings.GOOGLE_SITE_VERIFICATION:
+        verification_meta = f'<meta name="google-site-verification" content="{settings.GOOGLE_SITE_VERIFICATION}" />'
+
+    return HTMLResponse(content=f"""\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{_APP_NAME} — AI-Powered Sales Operations</title>
+  <meta name="description" content="{_APP_NAME} is an AI-powered sales operations assistant that automates lead discovery, ERPNext CRM management, and outreach." />
+  {verification_meta}
+  {_COMMON_STYLES}
+  <style>
+    .hero {{
+      text-align: center;
+      padding: 80px 0 40px;
+    }}
+    .hero h1 {{
+      font-size: 3rem;
+      background: linear-gradient(135deg, #fff 30%, #a78bfa 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 24px;
+      letter-spacing: -1px;
+    }}
+    .hero p {{
+      font-size: 1.15rem;
+      max-width: 600px;
+      margin: 0 auto 40px;
+      color: #a0a0b0;
+    }}
+    .features {{
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 24px;
+      margin-bottom: 60px;
+    }}
+    @media (min-width: 640px) {{
+      .features {{
+        grid-template-columns: 1fr 1fr;
+      }}
+    }}
+    .feature-card {{
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 12px;
+      padding: 28px;
+      transition: all 0.3s ease;
+    }}
+    .feature-card:hover {{
+      transform: translateY(-2px);
+      background: rgba(255, 255, 255, 0.05);
+      border-color: rgba(139, 92, 246, 0.2);
+    }}
+    .feature-card h3 {{
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: #fff;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }}
+    .feature-card p {{
+      font-size: 0.95rem;
+      color: #9090a0;
+      line-height: 1.6;
+      margin: 0;
+    }}
+    .cta-group {{
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+      margin-bottom: 60px;
+    }}
+    .btn {{
+      display: inline-block;
+      padding: 12px 28px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 0.95rem;
+      transition: all 0.2s ease;
+      cursor: pointer;
+    }}
+    .btn-primary {{
+      background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+      color: #fff;
+    }}
+    .btn-primary:hover {{
+      opacity: 0.9;
+      text-decoration: none;
+    }}
+    .btn-secondary {{
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #fff;
+    }}
+    .btn-secondary:hover {{
+      background: rgba(255, 255, 255, 0.08);
+      text-decoration: none;
+    }}
+    .legal-footer {{
+      display: flex;
+      justify-content: center;
+      gap: 24px;
+      margin-top: 40px;
+      font-size: 0.9rem;
+    }}
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="hero">
+    <span class="badge">Introducing</span>
+    <h1>{_APP_NAME}</h1>
+    <p>
+      An intelligent, autonomous sales operations assistant that simplifies lead discovery, 
+      streamlines CRM management, and automates outreach workflows.
+    </p>
+    <div class="cta-group">
+      <a href="/health" class="btn btn-primary">Check System Health</a>
+      <a href="/privacy" class="btn btn-secondary">Privacy Policy</a>
+    </div>
+  </div>
+
+  <h2>Purpose &amp; Capabilities</h2>
+  <p style="margin-bottom: 32px;">
+    {_APP_NAME} is built to serve as a bridge between public business directories, your internal 
+    ERPNext CRM instance, and Google Workspace services. It empowers sales and operations teams to automate 
+    time-consuming prospect research and messaging securely.
+  </p>
+
+  <div class="features">
+    <div class="feature-card">
+      <h3>🔍 Lead Generation</h3>
+      <p>Discovers and enriches potential business leads dynamically using location, industry, and ratings criteria via Google Places.</p>
+    </div>
+    <div class="feature-card">
+      <h3>💼 CRM Integration</h3>
+      <p>Syncs prospects directly to your ERPNext instances. Organizes pipelines, tracks lead creation, and structures contact details.</p>
+    </div>
+    <div class="feature-card">
+      <h3>✉️ Smart Outreach</h3>
+      <p>Drafts personalized introductory emails and coordinates direct outreach based on lead source data.</p>
+    </div>
+    <div class="feature-card">
+      <h3>📅 Calendar Scheduling</h3>
+      <p>Checks real-time availability and schedules conflict-free calendar appointments with prospective clients automatically.</p>
+    </div>
+  </div>
+
+  <h2>Application Scope &amp; OAuth Consent</h2>
+  <p>
+    To perform its duties, {_APP_NAME} requests permissions to access Gmail (for sending emails) 
+    and Google Calendar (for scheduling appointments). Your data is treated with the highest standard of security. 
+    We strictly act on your explicit prompts and commands to the assistant.
+  </p>
+
+  <div class="legal-footer">
+    <a href="/privacy">Privacy Policy</a>
+    <a href="/terms">Terms of Service</a>
+  </div>
+
+  <div class="footer-note">
+    &copy; 2026 {_COMPANY}. All rights reserved.
+  </div>
+</div>
+</body>
+</html>
+""")
+
+
+@router.get("/google{{verification_code}}.html", response_class=HTMLResponse)
+async def google_verification(verification_code: str):
+    """Dynamic Google Search Console ownership verification file handler."""
+    return HTMLResponse(content=f"google-site-verification: google{{verification_code}}.html")
 
 
 # ── Privacy Policy ───────────────────────────────────────────────────────

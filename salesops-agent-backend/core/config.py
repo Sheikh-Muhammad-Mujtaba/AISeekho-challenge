@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     # ── Security ─────────────────────────────────────────────────────────
     ENCRYPTION_KEY: str = ""
 
+    # ── Verification ─────────────────────────────────────────────────────
+    GOOGLE_SITE_VERIFICATION: str = "bmcSvmYPsn3dPLi50H2NSQGPgpFFHJTvn0g7OUhw7BA"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
