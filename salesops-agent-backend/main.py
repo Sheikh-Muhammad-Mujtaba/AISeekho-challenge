@@ -86,8 +86,9 @@ async def validation_exception_handler(
 async def health_check():
     return {"status": "healthy"}
 
-from api.endpoints import chat, runs, logs, dashboard, calendar
+from api.endpoints import chat, runs, logs, dashboard, calendar, pages
 
+app.include_router(pages.router, tags=["legal"])
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(runs.router, prefix="/api/runs", tags=["runs"])
 app.include_router(logs.router, prefix="/api/workflows", tags=["trace-logs"])
