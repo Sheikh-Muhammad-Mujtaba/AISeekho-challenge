@@ -126,7 +126,7 @@ async def _call(tool_name: str, arguments: dict, context: AgentContext = None) -
             case "send_email":
                 return await send_email(
                     arguments["to_email"], arguments["subject"],
-                    arguments["body"], arguments.get("simulation_mode", True),
+                    arguments["body"],
                 )
             case "search_businesses":
                 return await search_businesses(SearchBusinessesInput(**arguments))
@@ -210,12 +210,20 @@ async def get_chatbot_link_tool(
 async def send_email_tool(
     wrapper: RunContextWrapper[AgentContext],
     to_email: str, subject: str, body: str,
-    simulation_mode: bool = True,
 ) -> dict:
-    """Sends an email to a lead or attendee using Gmail."""
+    """Send a real email via Gmail SMTP to a lead or attendee.
+
+    This tool sends an actual email — it is NOT a simulation.
+    The email is sent from the configured Gmail account.
+
+    Args:
+        to_email: Recipient email address.
+        subject: Email subject line.
+        body: Plain-text email body content.
+    """
     return await _call("send_email", {
         "to_email": to_email, "subject": subject,
-        "body": body, "simulation_mode": simulation_mode,
+        "body": body,
     }, context=wrapper.context)
 
 

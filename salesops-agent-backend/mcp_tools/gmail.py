@@ -1,8 +1,7 @@
 """Gmail SMTP MCP tool adapter.
 
-Sends emails via Gmail using App Password + SMTP (TLS).
-Supports simulation_mode=True to safely test the agent loop
-without actually sending emails.
+Sends real emails via Gmail using App Password + SMTP (TLS).
+All calls hit the live SMTP server — no simulation mode.
 """
 
 import logging

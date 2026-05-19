@@ -68,69 +68,84 @@ class CreateEventInput(BaseModel):
 # ---------------------------------------------------------------------------
 
 async def check_availability(input_data: CheckAvailabilityInput) -> dict[str, Any]:
-    """Check calendar availability for a given date."""
+    """Check calendar availability for a given date using Google FreeBusy API."""
     try:
         access_token = await get_access_token(input_data.refresh_token)
     except Exception as e:
-        logger.error(f"Failed to get access token: {e}")
+        logger.error("Failed to get access token: %s", e)
         return {"status": "error", "message": str(e)}
 
-    # Define time min and time max for the requested date
-    # Format required by Google Calendar API is RFC3339, e.g. 2026-05-20T00:00:00+05:00
-    # For simplicity with FreeBusy, we will let Google interpret the timezone field
-    time_min = f"{input_data.date}T00:00:00Z"
-    time_max = f"{input_data.date}T23:59:59Z"
+    # Build timezone-aware RFC3339 timestamps for the requested local date
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(input_data.timezone)
+        day_start = datetime(
+            *map(int, input_data.date.split("-")),  # year, month, day
+            0, 0, 0, tzinfo=tz,
+        )
+        day_end = day_start + timedelta(days=1) - timedelta(seconds=1)
+        time_min = day_start.isoformat()
+        time_max = day_end.isoformat()
+    except Exception:
+        # Fallback: let Google interpret via timeZone field
+        time_min = f"{input_data.date}T00:00:00"
+        time_max = f"{input_data.date}T23:59:59"
 
     url = "https://www.googleapis.com/calendar/v3/freeBusy"
     headers = {
         "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
     }
     payload = {
         "timeMin": time_min,
         "timeMax": time_max,
         "timeZone": input_data.timezone,
-        "items": [{"id": "primary"}]
+        "items": [{"id": "primary"}],
     }
+
+    logger.info("FreeBusy request: date=%s tz=%s timeMin=%s timeMax=%s",
+                input_data.date, input_data.timezone, time_min, time_max)
 
     async with httpx.AsyncClient() as client:
         try:
             response = await client.post(url, json=payload, headers=headers)
             response.raise_for_status()
             data = response.json()
-            
+
             busy_slots = data.get("calendars", {}).get("primary", {}).get("busy", [])
-            
+
             return {
                 "status": "success",
                 "message": f"Availability for {input_data.date}",
                 "date": input_data.date,
                 "timezone": input_data.timezone,
-                "busy_slots": busy_slots
+                "busy_slots": busy_slots,
+                "total_busy": len(busy_slots),
+                "is_free_all_day": len(busy_slots) == 0,
             }
+        except httpx.HTTPStatusError as e:
+            logger.error("FreeBusy API error: %s — %s", e.response.status_code, e.response.text)
+            return {"status": "error", "message": f"Calendar API error: {e.response.status_code}"}
         except Exception as e:
-            logger.error(f"Failed to check availability: {e}")
+            logger.error("Failed to check availability: %s", e)
             return {"status": "error", "message": f"Failed to check availability: {str(e)}"}
 
 
 async def create_event(input_data: CreateEventInput) -> dict[str, Any]:
-    """Create a Google Calendar event."""
+    """Create a real Google Calendar event via the Calendar Events API."""
     try:
         access_token = await get_access_token(input_data.refresh_token)
     except Exception as e:
-        logger.error(f"Failed to get access token: {e}")
+        logger.error("Failed to get access token: %s", e)
         return {"status": "error", "message": str(e)}
 
     end_time = input_data.end_datetime
     if not end_time:
         try:
-            # Assume 1 hour duration if not provided
-            # Make sure it handles basic ISO strings
             start_dt = datetime.fromisoformat(input_data.start_datetime.replace('Z', '+00:00'))
             end_dt = start_dt + timedelta(hours=1)
             end_time = end_dt.isoformat()
         except Exception:
-            # Fallback
             end_time = input_data.start_datetime
 
     attendees = [{"email": email} for email in (input_data.attendee_emails or [])]
@@ -138,9 +153,9 @@ async def create_event(input_data: CreateEventInput) -> dict[str, Any]:
     url = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
     headers = {
         "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
     }
-    
+
     payload = {
         "summary": input_data.summary,
         "description": input_data.description,
@@ -152,15 +167,24 @@ async def create_event(input_data: CreateEventInput) -> dict[str, Any]:
             "dateTime": end_time,
             "timeZone": input_data.timezone,
         },
-        "attendees": attendees
+        "attendees": attendees,
     }
+
+    logger.info(
+        "Creating calendar event: summary=%s start=%s end=%s tz=%s attendees=%s",
+        input_data.summary, input_data.start_datetime, end_time,
+        input_data.timezone, [e["email"] for e in attendees],
+    )
 
     async with httpx.AsyncClient() as client:
         try:
             response = await client.post(url, json=payload, headers=headers)
             response.raise_for_status()
             event_data = response.json()
-            
+
+            logger.info("Event created: id=%s link=%s",
+                        event_data.get("id"), event_data.get("htmlLink"))
+
             return {
                 "status": "success",
                 "message": "Event created successfully.",
@@ -170,8 +194,11 @@ async def create_event(input_data: CreateEventInput) -> dict[str, Any]:
                     "start": event_data.get("start", {}).get("dateTime"),
                     "end": event_data.get("end", {}).get("dateTime"),
                     "html_link": event_data.get("htmlLink"),
-                }
+                },
             }
+        except httpx.HTTPStatusError as e:
+            logger.error("Calendar Events API error: %s — %s", e.response.status_code, e.response.text)
+            return {"status": "error", "message": f"Calendar API error: {e.response.status_code} — {e.response.text}"}
         except Exception as e:
-            logger.error(f"Failed to create event: {e}")
+            logger.error("Failed to create event: %s", e)
             return {"status": "error", "message": f"Failed to create event: {str(e)}"}
