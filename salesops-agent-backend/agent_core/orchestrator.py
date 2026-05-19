@@ -261,7 +261,20 @@ async def check_availability_tool(
     wrapper: RunContextWrapper[AgentContext],
     date: str, timezone: str = "Asia/Karachi",
 ) -> dict:
-    """Check calendar availability for a given date."""
+    """Check the user's real Google Calendar availability for a specific date.
+
+    This tool calls the Google Calendar FreeBusy API to return actual busy time slots.
+    You MUST call this tool before creating any calendar event.
+
+    Args:
+        date: The date to check in YYYY-MM-DD format (e.g., '2026-05-20').
+              MUST be an absolute date, not relative ('tomorrow').
+        timezone: IANA timezone string (default: 'Asia/Karachi').
+
+    Returns:
+        A dict with 'busy_slots' (list of {start, end} time ranges when the user is busy)
+        and 'date'. If busy_slots is empty, the entire day is free.
+    """
     return await _call("check_availability", {
         "date": date, "timezone": timezone,
     }, context=wrapper.context)
@@ -274,7 +287,24 @@ async def create_event_tool(
     description: str = "", timezone: str = "Asia/Karachi",
     attendee_emails: list[str] = None,
 ) -> dict:
-    """Create a Google Calendar event."""
+    """Create a real event on the user's Google Calendar.
+
+    This tool calls the Google Calendar Events API to insert a new event.
+    You MUST call check_availability_tool first to verify the time slot is free.
+
+    Args:
+        summary: Event title (e.g., 'Demo call with Al-Shifa Clinic').
+        start_datetime: ISO-8601 start time WITHOUT timezone suffix.
+                        Format: 'YYYY-MM-DDTHH:MM:SS' (e.g., '2026-05-20T10:00:00').
+                        DO NOT append 'Z' or '+05:00'.
+        end_datetime: ISO-8601 end time, same format. If omitted, defaults to 1 hour after start.
+        description: Optional event body text / meeting notes.
+        timezone: IANA timezone (default: 'Asia/Karachi'). The API uses this for both start and end.
+        attendee_emails: List of email addresses to invite (e.g., ['client@example.com']).
+
+    Returns:
+        A dict with event_id, summary, start, end, and html_link (Google Calendar link).
+    """
     return await _call("create_event", {
         "summary": summary, "start_datetime": start_datetime,
         "end_datetime": end_datetime, "description": description,
@@ -338,17 +368,38 @@ outreach_agent = Agent[AgentContext](
     model=model_medium,  # gemini-2.5-flash
     model_settings=ModelSettings(include_usage=True),
     instructions=(
-        "You are a specialized Outreach Agent focused on communications and scheduling.\n\n"
+        "You are a specialized Outreach Agent focused on communications and scheduling.\n"
+        "You have access to REAL tools that interact with LIVE services. You MUST call them — NEVER fabricate or hallucinate results.\n\n"
+        "## CRITICAL RULES\n"
+        "1. You MUST call the actual tools provided to you. NEVER make up calendar data, email confirmations, or event links.\n"
+        "2. If a tool returns an error, report the EXACT error to the user. Do NOT pretend the action succeeded.\n"
+        "3. If a tool is unavailable or credentials are missing, tell the user to connect their Google Calendar first.\n\n"
         "## Email Strategy\n"
         "1. Draft and send emails using `send_email_tool`.\n"
         "2. Write professional, concise emails with a clear subject line and call-to-action.\n\n"
-        "## Calendar & Scheduling Strategy\n"
-        "1. ALWAYS check calendar availability with `check_availability_tool` for the specific date before scheduling.\n"
-        "2. When creating an event, use `create_event_tool`. You MUST provide `start_datetime` and `end_datetime` in strict ISO-8601 format (e.g., 'YYYY-MM-DDTHH:MM:SS').\n"
-        "3. If meeting duration is unspecified, assume 1 hour. Include all relevant `attendee_emails` and a detailed `summary` and `description`.\n\n"
+        "## Calendar & Scheduling Strategy (MANDATORY WORKFLOW)\n"
+        "When the user asks to schedule a meeting, check availability, or create an event, follow this EXACT workflow:\n\n"
+        "### Step 1: Check Availability\n"
+        "ALWAYS call `check_availability_tool` FIRST with the target date.\n"
+        "- Parameter `date`: MUST be in 'YYYY-MM-DD' format (e.g., '2026-05-20'). Convert relative dates like 'tomorrow' or 'next Monday' to absolute dates.\n"
+        "- Parameter `timezone`: Default 'Asia/Karachi'.\n"
+        "- The tool returns real busy_slots from the user's Google Calendar. Report these to the user.\n\n"
+        "### Step 2: Create Event (only after Step 1)\n"
+        "Call `create_event_tool` with these parameters:\n"
+        "- `summary`: A descriptive title (e.g., 'Sales Demo — Al-Shifa Clinic').\n"
+        "- `start_datetime`: ISO-8601 format WITHOUT timezone suffix: 'YYYY-MM-DDTHH:MM:SS' (e.g., '2026-05-20T10:00:00').\n"
+        "- `end_datetime`: Same format. If not specified, omit it (defaults to 1 hour after start).\n"
+        "- `description`: Meeting notes or agenda.\n"
+        "- `timezone`: 'Asia/Karachi' (default).\n"
+        "- `attendee_emails`: List of email strings to invite.\n\n"
+        "### Step 3: Confirm to User\n"
+        "After the tool returns, report the ACTUAL result:\n"
+        "- Event title, start/end time, attendees, and the Google Calendar link (html_link).\n"
+        "- If the tool returned an error, show the error — do NOT make up a fake confirmation.\n\n"
         "## Output Rules\n"
         "- NEVER use markdown tables. Use bold headings and bullet points.\n"
-        "- Always confirm actions: email sent to whom, event created at what time, etc.\n"
+        "- Always confirm actions with REAL data from tool responses.\n"
+        "- NEVER invent event IDs, calendar links, or time slots.\n"
     ),
     tools=[send_email_tool, check_availability_tool, create_event_tool],
 )
@@ -359,12 +410,12 @@ Role: SalesOps Orchestrator — autonomous lead-gen specialist + ERPNext CRM ope
 You manage specialized agents:
 - lead_generation: Discover and enrich leads from Google Places.
 - crm_management: Manage and analyze CRM data in ERPNext.
-- outreach: Draft emails and schedule calendar meetings.
+- outreach: Draft emails, check REAL Google Calendar availability, and create REAL calendar events.
 
 # Strategy
 1. Delegate broad lead discovery requests to `lead_generation`.
 2. Delegate CRM tasks (creating/reading/updating leads, pipeline analysis) to `crm_management`.
-3. Delegate communications (emails, calendar events) to `outreach`.
+3. Delegate ALL scheduling, meeting, availability, and email tasks to `outreach`. This agent has access to the user's real Google Calendar — it is NOT a simulation.
 4. When leads are discovered, proactively ask the user which ones they want to add to the CRM, then delegate to `crm_management`.
 5. After adding leads to the CRM, suggest next steps like scheduling a follow-up call or sending an introductory email.
 
@@ -408,6 +459,14 @@ IF intent unclear OR missing params (industry, city, lead-ID):
 - If the user asks about topics outside your scope (e.g., coding, general knowledge, jokes, weather, news), politely decline:
   "I appreciate your message, but I'm specialized in sales operations — lead generation, CRM management, and outreach. How can I help you with those?"
 - Do NOT engage with casual chat, jokes, or off-topic discussions.
+
+# ANTI-HALLUCINATION RULES (MANDATORY)
+- You do NOT have direct access to tools. You MUST delegate to the appropriate sub-agent.
+- For ANY calendar/scheduling request (check availability, create meeting, schedule call), you MUST delegate to `outreach`.
+- NEVER fabricate calendar availability, event links, event IDs, or email confirmations.
+- NEVER say "I've created a meeting" or "Your calendar shows..." unless you actually delegated to `outreach` and received a real tool response.
+- If the user's Google Calendar is not connected, inform them: "Please connect your Google Calendar from the Account screen first."
+- Always pass the user's exact date/time intent to `outreach`. Resolve relative dates (e.g., 'tomorrow') to absolute dates BEFORE delegating.
 """
 
 orchestrator_agent = Agent[AgentContext](
@@ -426,7 +485,12 @@ orchestrator_agent = Agent[AgentContext](
         ),
         outreach_agent.as_tool(
             tool_name="outreach",
-            tool_description="Draft emails and schedule meetings",
+            tool_description=(
+                "Draft and send emails, check REAL Google Calendar availability, "
+                "and create REAL calendar events. Delegate here for ANY scheduling, "
+                "meeting, availability, or email task. This agent calls live APIs — "
+                "it does NOT simulate or fabricate results."
+            ),
         ),
     ],
 )
