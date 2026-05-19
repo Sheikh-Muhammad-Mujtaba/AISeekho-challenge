@@ -587,7 +587,8 @@ Distributed under the **MIT License**. See `LICENSE` for more information.
 
 ## Contact
 
-**Muhammad Mujtaba** — [@Sheikh-Muhammad-Mujtaba](https://github.com/Sheikh-Muhammad-Mujtaba)
+**Amad Asif** (Mobile App Developer) — [@amadasif-dev](https://github.com/amadasif-dev)  
+**Muhammad Mujtaba** (Backend Developer) — [@Sheikh-Muhammad-Mujtaba](https://github.com/Sheikh-Muhammad-Mujtaba)
 
 Project Link: [github.com/Sheikh-Muhammad-Mujtaba/AISeekho-challenge](https://github.com/Sheikh-Muhammad-Mujtaba/AISeekho-challenge)
 
